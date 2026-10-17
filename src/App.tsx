@@ -1,0 +1,4872 @@
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from "recharts";
+import {
+  School,
+  Brain,
+  Award,
+  Briefcase,
+  TrendingUp,
+  Laptop,
+  Heart,
+  Scale,
+  GraduationCap,
+  Users,
+  Clock,
+  BookOpen,
+  Target,
+  Wand2,
+  FileText,
+  Camera,
+  ClipboardList,
+  MessageSquare,
+  Upload,
+  Plus,
+  Search,
+  CheckCircle2,
+  AlertCircle,
+  FileSpreadsheet,
+  Settings,
+  Send,
+  X,
+  Printer,
+  Trash2,
+  Sparkles,
+  ShieldCheck,
+  ShieldAlert,
+  Smile,
+  UserCheck,
+  ChevronDown,
+  Calendar,
+  Presentation,
+  ChevronLeft,
+  ChevronRight,
+  PieChart,
+  HelpCircle,
+  Check,
+  Download,
+  Compass
+} from "lucide-react";
+import * as XLSX from "xlsx";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
+import { programsDB } from "./data";
+import { Program, Student, ChatMessage, ParentVisit } from "./types";
+import GuidanceProgramsServicesModal from "./components/GuidanceProgramsServicesModal";
+import PresentationSlidesModal from "./components/PresentationSlidesModal";
+import OperationalPlansSection from "./components/OperationalPlansSection";
+import OperationalPlanModal from "./components/OperationalPlanModal";
+import { operationalPlansDB, OperationalPlan } from "./operationalPlansData";
+import { motion, AnimatePresence } from "motion/react";
+
+// Monkeypatch window.getComputedStyle to translate oklch / oklab colors to rgb/rgba for html2canvas
+function convertOklchToRgb(str: string): string {
+  if (!str) return str;
+  let replaced = str.replace(/oklch\(\s*([\d.]+)[%\s,]+([\d.]+)[%\s,]+([\d.]+)(?:\s*[\/,]\s*([\d.]+))?\s*\)/gi, (match, lStr, cStr, hStr, aStr) => {
+    let L = parseFloat(lStr);
+    let C = parseFloat(cStr);
+    let H = parseFloat(hStr);
+    let A = aStr ? parseFloat(aStr) : 1;
+
+    if (lStr.includes('%')) L = L / 100;
+    if (cStr.includes('%')) C = C / 100;
+
+    const hRad = (H * Math.PI) / 180;
+    const a = C * Math.cos(hRad);
+    const b = C * Math.sin(hRad);
+
+    return oklabToRgbString(L, a, b, A);
+  });
+
+  replaced = replaced.replace(/oklab\(\s*([\d.]+)[%\s,]+([-\d.]+)[%\s,]+([-\d.]+)(?:\s*[\/,]\s*([\d.]+))?\s*\)/gi, (match, lStr, aStr, bStr, alphaStr) => {
+    let L = parseFloat(lStr);
+    let a = parseFloat(aStr);
+    let b = parseFloat(bStr);
+    let A = alphaStr ? parseFloat(alphaStr) : 1;
+
+    if (lStr.includes('%')) L = L / 100;
+
+    return oklabToRgbString(L, a, b, A);
+  });
+
+  return replaced;
+}
+
+function oklabToRgbString(L: number, a: number, b: number, alpha: number): string {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+
+  let r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  let b_val = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+  const gamma = (c: number) => {
+    return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  };
+
+  const R = Math.max(0, Math.min(255, Math.round(gamma(r) * 255)));
+  const G = Math.max(0, Math.min(255, Math.round(gamma(g) * 255)));
+  const B = Math.max(0, Math.min(255, Math.round(gamma(b_val) * 255)));
+
+  if (alpha === 1) {
+    return `rgb(${R}, ${G}, ${B})`;
+  } else {
+    return `rgba(${R}, ${G}, ${B}, ${alpha})`;
+  }
+}
+
+if (typeof window !== "undefined") {
+  const originalGetComputedStyle = window.getComputedStyle;
+  window.getComputedStyle = function (elt, pseudoElt) {
+    const style = originalGetComputedStyle.call(this, elt, pseudoElt);
+    const originalGetPropertyValue = style.getPropertyValue;
+    
+    try {
+      style.getPropertyValue = function (prop) {
+        let value = originalGetPropertyValue.call(this, prop);
+        if (value && (value.includes("oklch") || value.includes("oklab"))) {
+          value = convertOklchToRgb(value);
+        }
+        return value;
+      };
+    } catch (e) {
+      // ignore read-only override errors
+    }
+
+    return new Proxy(style, {
+      get(target, prop) {
+        if (prop === "getPropertyValue") {
+          return function (p: string) {
+            let val = originalGetPropertyValue.call(target, p);
+            if (val && (val.includes("oklch") || val.includes("oklab"))) {
+              val = convertOklchToRgb(val);
+            }
+            return val;
+          };
+        }
+        const val = target[prop as any];
+        if (typeof val === "string" && (val.includes("oklch") || val.includes("oklab"))) {
+          return convertOklchToRgb(val);
+        }
+        if (typeof val === "function") {
+          return val.bind(target);
+        }
+        return val;
+      }
+    });
+  };
+}
+
+interface IntervalInfo {
+  name: string;
+  short: string;
+}
+
+export const getProgramIntervals = (programId: string): { intervals: IntervalInfo[]; label: string; tableHeader: string } => {
+  if (programId === "prog_intro_week" || programId === "prog_safe_internet" || programId === "prog_anti_bullying") {
+    return {
+      intervals: [
+        { name: "الفترة الأولى (التأسيس والتهيئة المبدئية)", short: "الفترة الأولى" },
+        { name: "الفترة الثانية (الدمج والتقييم الختامي)", short: "الفترة الثانية" }
+      ],
+      label: "فترات تفعيل البرنامج",
+      tableHeader: "فترة الرصد"
+    };
+  } else if (programId === "prog_graduates") {
+    return {
+      intervals: [
+        { name: "الفترة الأولى (حصر الخريجين والتنظيم المبدئي)", short: "الفترة الأولى" },
+        { name: "الفترة الثانية (الاحتفاء والتوجيه للمرحلة التالية)", short: "الفترة الثانية" }
+      ],
+      label: "فترات الإعداد والتهيئة",
+      tableHeader: "فترة الرصد"
+    };
+  } else if (programId === "prog_parents_council") {
+    return {
+      intervals: [
+        { name: "الفترة الأولى (لقاءات الفصل الدراسي الأول)", short: "الفترة الأولى" },
+        { name: "الفترة الثانية (لقاءات الفصل الدراسي الثاني والثالث)", short: "الفترة الثانية" }
+      ],
+      label: "فترات انعقاد المجالس خلال العام الدراسي",
+      tableHeader: "فترة الرصد"
+    };
+  } else if (programId === "prog_psych_prep") {
+    return {
+      intervals: [
+        { name: "الفترة الأولى (التوعية وبناء دافعية التعلم)", short: "قبل الاختبارات" },
+        { name: "الفترة الثانية (الدعم النفسي والتهيئة للجان الاختبارات)", short: "أثناء الاختبارات" }
+      ],
+      label: "فترات التوعية والتهيئة للاختبارات",
+      tableHeader: "فترة الرصد"
+    };
+  } else {
+    return {
+      intervals: [
+        { name: "الفترة الأولى (النصف الأول من الفصل الدراسي)", short: "الفترة الأولى" },
+        { name: "الفترة الثانية (النصف الثاني وقياس الأثر الختامي)", short: "الفترة الثانية" }
+      ],
+      label: "الفترات الدراسية لعام 1447هـ",
+      tableHeader: "فترة الرصد"
+    };
+  }
+};
+
+export const PROGRAM_QUESTIONS: Record<string, string[]> = {
+  prog_intro_week: [
+    "شعر الطالب بالترحيب والسعادة منذ اليوم الأول لدخوله المدرسة.",
+    "وضوح لوحات الترحيب الإرشادية بممرات وساحات المدرسة.",
+    "تفاعل الموجه الطلابي والمعلمين بإيجابية مع مخاوف الطالب المستجد.",
+    "ملاءمة الألعاب الترفيهية والمسابقات المنفذة للفئة العمرية.",
+    "مساهمة البرنامج الفعالة في تخفيف حاجز الخوف والرهبة من المكان.",
+    "جودة وكفاية الكتب المدرسية والهدايا المقدمة في حفل الاستقبال.",
+    "وضوح وفائدة اللقاء التعريفي التثقيفي المخصص لأولياء الأمور.",
+    "سهولة تعرف الطالب على الفصول ومواقع الخدمات كالمقصف والمصلى.",
+    "توفر الدعم والاحتواء المناسب لحالات البكاء والرفض المدرسي الشديد.",
+    "فاعلية قنوات التواصل الرقمي التي فتحتها المدرسة مع الأسر.",
+    "سرعة انسجام الطالب والبدء في بناء علاقات وصداقات جديدة.",
+    "وضوح وتثبيت دور الموجه الطلابي كمرجعية آمنة في نفوس الطلاب.",
+    "تيسير وتأمين عملية انصراف ودخول الطلاب المستجدين بانتظام.",
+    "ملاءمة وتهيئة المقاعد الدراسية داخل الفصول لراحة الطلاب.",
+    "الرضا العام لولي الأمر عن مستوى تخطيط وتنظيم فعاليات الأسبوع التمهيدي."
+  ],
+  prog_psych_prep: [
+    "مساهمة الإذاعة المدرسية الصباحية في توضيح آليات تخفيف توتر الاختبارات.",
+    "فاعلية النشرات الرقمية الموزعة حول قواعد تنظيم النوم والتغذية السليمة.",
+    "التزام الهيئة التعليمية بتقديم عبارات تحفيزية وداعمة قبل بدء اللجان.",
+    "توفر المياه والمشروبات والتهوية والإضاءة الكافية بداخل اللجان الدراسية.",
+    "مدى الاستفادة من توجيهات الموجه الطلابي الفردية للطلاب ذوي القلق المرتفع.",
+    "وضوح جداول الاختبارات ومواقع اللجان وأسماء المراقبين بشكل مسبق.",
+    "تمكن الطلاب من تطبيق مهارات الاستذكار والتلخيص الفعال والخرائط الذهنية.",
+    "سرعة تدخل الموجه الطلابي لمعالجة حالات البكاء والارتباك الطارئة في الفناء.",
+    "مستوى وعي أولياء الأمور بأهمية إبعاد الطالب عن المشاحنات المنزلية أثناء الاختبارات.",
+    "ملاحظة انخفاض في نسبة الغياب أو التأخر الصباحي المعتاد في فترة الاختبارات.",
+    "ملاءمة صياغة الأسئلة ووضوح طباعة أوراق الاختبار ومطابقتها للمواصفات.",
+    "سهولة وصول الطالب وتجاوب الموجه الطلابي معه لتقديم الدعم النفسي.",
+    "فاعلية التهيئة الخاصة والتعديلات المقدمة لطلاب الفئات الخاصة أو المرضية.",
+    "بث روح التفاؤل والدافعية وتجنب مقارنة الطالب بزملائه قبل اللجان.",
+    "الأثر العام لبرامج الدعم النفسي على تحسين أداء الطلاب وجودة إجاباتهم."
+  ],
+  prog_positive_behavior: [
+    "وضوح القيمة السلوكية المطروحة شهرياً (كالاحترام أو الأمانة) للطلاب.",
+    "أثر الكلمات الصباحية والمنشورات الحائطية في تعزيز السلوكيات الحميدة.",
+    "عدالة ونزاهة معايير الترشيح واختيار الطلاب المتميزين سلوكياً.",
+    "تنوع وجاذبية الجوائز العينية وشهادات التقدير الموزعة على المكرمين.",
+    "تجاوب وحرص المعلمين على تعزيز الطلاب ومنحهم بطاقات النقاط.",
+    "ملاحظة تراجع السلوكيات العدوانية أو التخريبية بداخل الفصل الدراسي.",
+    "تحسن وتطور مستوى المعاملة الراقية بين الطلاب ومعلميهم.",
+    "رغبة وحرص الطلاب على الاستمرار في تقديم السلوك الإيجابي لنيل التعزيز.",
+    "فخر واعتزاز الأسرة بتلقي خطاب شكر رسمي يثني على انضباط ابنهم السلوكي.",
+    "حرص الطلاب ومبادرتهم في التقديم للمشاركات التطوعية داخل المدرسة.",
+    "تحسن الحفاظ على نظافة الفصل وممتلكات المدرسة بفضل التنافس الأخلاقي.",
+    "مساهمة البرنامج في تحفيز وتعديل سلوك الطلاب المشاغبين أو المتعثرين.",
+    "تأثير التكريم في الطابور على تحفيز بقية الطلاب للمنافسة والتميز.",
+    "سهولة ووضوح آلية رصد السلوكيات الإيجابية من قبل الكادر المدرسي.",
+    "الرضا العام للمجتمع المدرسي عن البرنامج ودوره في بناء بيئة جاذبة."
+  ],
+  prog_career_guidance: [
+    "زيادة إدراك الطالب وفهمه لنظام مسارات الثانوية العامة الجديد.",
+    "وضوح الرؤية الوطنية 2030 المرتبطة بالطلب المتزايد على التخصصات النوعية.",
+    "إسهام مقياس الميول المهنية في كشف وتوجيه ميول وقدرات الطالب الحقيقية.",
+    "ملاءمة ورش العمل المنفذة لمستويات الطلاب الثقافية واهتماماتهم الشخصية.",
+    "مدى فائدة استضافة أصحاب المهن المختلفة للتحدث المباشر مع الطلاب.",
+    "مساهمة المعرض المهني المدرسي في تقريب المفاهيم وتبسيط مجالات العمل.",
+    "قدرة الطالب على التفريق بوضوح بين المسارات الأكاديمية والتقنية والمهنية.",
+    "تمكن الطالب من رسم خطة مستقبلية مبدئية لمسيرته التعليمية والجامعية.",
+    "مستوى وعي أولياء الأمور بالمسارات وتجنب فرض خيارات محددة على الطالب.",
+    "سهولة وصول الطلاب واستخدامهم لمنصة 'سبل' الإرشادية والمنصات الرسمية.",
+    "مساهمة التوجيه الطلابي في معالجة التردد بين رغبات الأهل وميول الطالب.",
+    "دقة وواقعية النتائج والتصنيفات المهنية التي قدمها المقياس المطبق.",
+    "زيادة رغبة الطالب في البحث والاطلاع الذاتي على الفرص المهنية الواعدة.",
+    "وضوح متطلبات وشروط القبول بالجامعات والمسارات المتاحة بعد المرحلة.",
+    "الرضا العام للطلاب عن الدعم والتوجيه المقدم لهم لاكتشاف مستقبلهم."
+  ],
+  prog_remedial_plan: [
+    "سرعة ودقة حصر الطلاب المتعثرين دراسياً عقب إعلان نتائج الفترات مباشرة.",
+    "وضوح محتوى وأهداف الخطة العلاجية المقررة للطالب وولي أمره بشكل مسبق.",
+    "ملاءمة توقيت فصول التقوية وحصص الدعم لظروف الطلاب ولا تؤثر على الحصص الرئيسية.",
+    "تجاوب الطلاب ورغبتهم في التفاعل مع مجموعات الدعم وأسلوب 'تعليم الأقران'.",
+    "التزام وتجاوب المعلمين في تصميم وتبسيط المادة العلمية ومراواة الفروق الفردية.",
+    "تفاعل ولي الأمر ومتابعته الجادة لتنفيذ الواجبات الإضافية المنزلية المحفزة.",
+    "ملاحظة ارتفاع ثقة الطالب بنفسه وتلاشي خجل الانضمام لمجموعات العلاج.",
+    "تحسن ملحوظ في نتائج الطلاب ودرجاتهم الإحصائية بالتقويم اللاحق بالمواد.",
+    "جودة التنسيق والمتابعة الدورية المشتركة بين المعلمين والموجه الطلابي.",
+    "توفر حقائب ومذكرات علاجية داعمة وسهلة الفهم ومناسبة للتعلم الذاتي.",
+    "كفاءة أساليب التحفيز والتعزيز الإيجابي المطبقة لرفع معنويات المتعثرين.",
+    "النجاح في تشخيص ومعالجة العوامل النفسية أو الاجتماعية المسببة للتأخر الدراسي.",
+    "رضا أولياء الأمور عن أسلوب تواصل المدرسة لإطلاعهم على تطور مستوى أبنائهم.",
+    "مراعاة المعلمين لرصد التقييمات التكوينية المستمرة للوقوف على مواطن الضعف بدقة.",
+    "الرضا العام للمجتمع المدرسي عن قدرة الخطة في تقليص نسب التعثر الدراسي."
+  ],
+  prog_safe_internet: [
+    "زيادة وعي الطالب بمفهوم الأمن السيبراني وطرق حماية معلوماته الشخصية.",
+    "إدراك الطلاب لأشكال الابتزاز الإلكتروني وخطوات التصرف الصحيحة حيالها.",
+    "معرفة الطالب بالجهة الرسمية المعتمدة وقنوات التبليغ عن الجرائم المعلوماتية.",
+    "فهم وتطبيق قواعد إنشاء وحماية كلمات المرور القوية وتجنب الروابط المشبوهة.",
+    "فاعلية المحاضرات المنفذة حول سبل مكافحة التنمر السيبراني والوقاية منه.",
+    "إسهام الرسائل والإنفوجرافيك الموزع في توعية الأسر بالممارسات الرقمية السليمة.",
+    "تحسن قدرة الطلاب على تنظيم أوقاتهم بين المذاكرة والألعاب الإلكترونية.",
+    "معرفة الطالب بخط مساندة الطفل (116111) وتطبيقه العملي للتبليغ الفوري.",
+    "تفاعل واهتمام الطلاب بالمشاركة في الندوات الطلابية والمسابقات السيبرانية.",
+    "قدرة الطالب على التمييز بين المواقع الموثوقة والمواقع الزائفة أو الاحتيالية.",
+    "وعي وتفاعل الأسر في تفعيل أدوات الرقابة الأبوية وتطبيقات التحكم الرقمي بالمنزل.",
+    "ملاءمة وجاذبية العروض والوسائط المرئية المستخدمة في التوعية بالبرنامج.",
+    "Tراجع المشكلات أو الاحتكاكات الناتجة عن إساءة استخدام التقنية بين الطلاب.",
+    "مساهمة البرنامج في تصحيح المعتقدات الخاطئة حول الجلوس الطويل أمام الشاشات.",
+    "الرضا العام عن الدور التوعوي الاستباقي الذي تقوم به المدرسة لحماية الطلبة تقنياً."
+  ],
+  prog_anti_bullying: [
+    "وضوح وتحديد مفهوم التنمر بجميع أشكاله (الجسدي واللفظي والسيبراني) للطلاب.",
+    "إسهام مسابقات الرسم والإبداع في ترسيخ قيم التسامح والتآخي وصداقات المدرسة.",
+    "تفاعل ووعي الطلاب بشعار حملة الرفق المدرسي ومشاركتهم الفعالة بها.",
+    "ارتفاع شعور الطلاب بالأمان والاستقرار والراحة النفسية داخل البيئة المدرسية.",
+    "ثقة الطلاب الكبيرة في الموجه الطلابي وقدرتهم على التوجه إليه للإبلاغ بسرية تامة.",
+    "مبادرة المعلمين بالتدخل الإيجابي الفوري والتربوي لإنهاء أي نزاعات لفظية أو بدنية.",
+    "كفاية وفاعلية الرقابة الميدانية أثناء الفسحة وفي الممرات ومناطق الانصراف.",
+    "نجاح الجلسات الإرشادية وسجلات تعديل السلوك المخصصة للطلاب ذوي النزعة العنيفة.",
+    "جودة ونوعية الاحتواء والدعم النفسي المقدم للطلاب الذين تعرضوا للتنمر.",
+    "سرعة وكفاءة البت في الشكاوى أو البلاغات المتعلقة بالتنمر ومعالجتها تربوياً.",
+    "وعي ومساندة أولياء الأمور للمدرسة في الحد من سلوكيات أبنائهم العنيفة.",
+    "التطبيق الحازم والعادل لقواعد السلوك والمواظبة في مخالفات العنف والتنمر.",
+    "تراجع ملموس في معدل الشكاوى اليومية المسجلة حول المشاحنات الطلابية.",
+    "تمكن الطلاب من الوقوف بجانب زملائهم المستضعفين وإبلاغ الإرشاد مباشرة.",
+    "الأثر العام الفعال للبرنامج في خلق مجتمع مدرسي تملؤه مشاعر الرفق والمحبة."
+  ],
+  prog_behavior_rules: [
+    "وضوح لائحة قواعد السلوك والمواظبة الجديدة وبنود درجات الحسم لجميع الطلاب.",
+    "توقيت ودقة إرسال الرسائل النصية الفورية لأولياء الأمور عند تغيب الطالب.",
+    "دقة وجدية الهيئة التعليمية في رصد حضور وغياب الطلاب بداية كل حصة دراسية.",
+    "العدالة التامة والشفافية في تطبيق اللائحة على المخالفين دون استثناءات عاطفية.",
+    "إدراك الأسر لأثر تراكم الغياب على درجات المواظبة والتحصيل الدراسي العام.",
+    "فاعلية العقود السلوكية والخطط العلاجية الموقعة بالتنسيق مع ولي الأمر والطلاب.",
+    "تراجع حالات التأخر عن الطابور الصباحي وحالات التسرب من الحصص الدراسية.",
+    "كفاءة وسرعة البت في اجتماعات لجان التوجيه الطلابي للتعامل مع الحالات الصعبة.",
+    "وعي الطلاب بالحقوق والواجبات والمخالفات المحددة في ميثاق الشراكة المعتمد.",
+    "رضا الطالب التام عن المعاملة التربوية والإرشادية المتدرجة والبعيدة عن التعسف.",
+    "انخفاض ملحوظ في حجم مخالفات الدرجة الثانية والثالثة بداخل المدرسة.",
+    "إسهام الموجه الطلابي في معالجة غياب الطلاب الناتج عن مشكلات صحية أو نفسية.",
+    "التفاعل والمشاركة الجادة للأسرة مع المدرسة لوضع حلول للطلاب غير المنضبطين.",
+    "حرص أولياء الأمور على التجاوب التام والحضور للمدرسة عند استدعائهم لمناقشة الغياب.",
+    "الأثر الإيجابي الإجمالي لقواعد الانضباط في تهيئة مناخ تعليمي منظم وهادئ."
+  ],
+  prog_graduates: [
+    "عدالة وتكافؤ فرص مشاركة جميع الخريجين في حفل التخرج دون أي تمييز أو تفرقة.",
+    "وضوح مواعيد وأماكن التدريبات والبروفات الميدانية لمسيرة التخرج وتسهيلها.",
+    "تنوع وجاذبية فقرات الحفل وملاءمتها للمكانة التربوية ومشاعر الطلاب والخريجين.",
+    "قيمة وفائدة الكلمة التوجيهية للإرشاد الطلابي في تهيئة الخريجين للمرحلة القادمة.",
+    "توزيع جلود وشواهد وشهادات التقدير والدروع التذكارية المصممة بعناية فائقة.",
+    "ملاءمة وقت ومكان الحفل لظروف أولياء الأمور وأسر الطلاب لضمان الحضور.",
+    "فخر واعتزاز الطلاب بالشهادات التقديرية والهدايا العينية الممنوحة لهم في الحفل.",
+    "تجاوب ورضا أولياء الأمور التام عن مستوى تكريم واحتفاء المدرسة بأبنائهم.",
+    "إسهام الحفل في تعزيز قيم الولاء والانتماء للوطن وتقدير جهود القيادة المعطاءة.",
+    "تجنب المدرسة الكامل لفرض أعباء مالية أو طلب رسوم لشراء مستلزمات الحفل.",
+    "رضا الطاقم التعليمي عن النظام والوقار والهدوء الذي ساد قاعة تنظيم المسيرة.",
+    "وضوح آلية ومواعيد تسليم ملفات الطلاب والشهادات الرسمية من نظام نور بيسر.",
+    "الأثر الإيجابي الكبير للحفل في بث مشاعر الدافعية والتفوق للسنوات المقبلة.",
+    "احترافية التصوير والتوثيق والتقرير الختامي المعد لنشر فرحة التخرج.",
+    "الرضا العام عن الدور الريادي للمدرسة في رعاية وتخريج جيل طموح يبني الوطن."
+  ],
+  prog_parents_council: [
+    "مراعاة مرونة وتوقيت اجتماعات المجلس وتجنب تعارضها مع أوقات الدوام الرسمي.",
+    "جودة وسهولة قنوات توجيه الدعوات الشخصية والإلكترونية لجميع أولياء الأمور مسبقاً.",
+    "مستوى الاستقبال والترحيب والضيافة والترتيبات الميدانية بداخل المدرسة.",
+    "مستوى المساحة وحرية الرأي الممنوحة لولي الأمر لطرح وجهة نظره وملاحظاته.",
+    "تجاوب المعلمين وسرعة تفاعلهم في نقاش مستويات وأداء الطلاب الدراسي بروح تربوية.",
+    "الخروج بتوصيات واضحة ومقترحات عملية وملموسة لتجاوز تعثر بعض الطلاب سلوكياً.",
+    "جدية المدرسة في تطبيق القرارات والبدائل المقترحة بالمجالس في الواقع الميداني.",
+    "جدوى ومحاور الكلمات التثقيفية والإرشادية المطروحة في الجمعية العمومية للمدرسة.",
+    "ملاءمة البيانات والتقارير المعروضة عن سلوك ومواظبة الطلاب لولي الأمر بالمجلس.",
+    "ثقة ولي الأمر بالمدرسة وجودة المتابعة اللاحقة من قبل الموجه الطلابي لتنفيذ القرارات.",
+    "إتاحة الفرصة لأصحاب الرأي والخبرة من الآباء في تقديم الدعم لفعاليات وأنشطة المدرسة.",
+    "تحسن الشراكة الحقيقية والتكاملية والشفافية بين الكادر التعليمي وولي الأمر.",
+    "ملاءمة وتنظيم قاعات الاجتماعات واللقاءات الفردية لضمان خصوصية النقاشات.",
+    "وضوح آلية التوثيق والتوقيع على محاضر وتوصيات المجالس بنهاية الفعاليات.",
+    "الأثر الإيجابي الإجمالي لمجالس الأمهات والآباء في تحسين سلوك وتحصيل الطلاب بالمدرسة."
+  ]
+};
+
+export const fallbackQuestions = [
+  "مدى ملاءمة أهداف البرنامج لمتطلبات الطلاب واحتياجاتهم الحقيقية.",
+  "وضوح الإرشادات والتوجيهات المقدمة من الموجه الطلابي خلال البرنامج.",
+  "تفاعل وتجاوب الكادر التعليمي والإداري في تسهيل وتطبيق البرنامج.",
+  "مساهمة الأنشطة والوسائل المنفذة في كسر الجمود وتوصيل الرسالة.",
+  "مدى توفر المطبوعات والنشرات التوعوية الداعمة لأهداف البرنامج.",
+  "أثر البرنامج في تحسين السلوك العام والانضباط بداخل المدرسة.",
+  "جودة قنوات التواصل والتنسيق بين المدرسة والمنزل لتفعيل المحاور.",
+  "ملاءمة توقيت ومدة البرنامج لتغطية كافة الفعاليات دون ضغط.",
+  "توفير بيئة جاذبة ومحفزة تضمن مشاركة الطلاب بدافعية تامة.",
+  "مدى رضا ولي الأمر عن محتوى والنتائج الملموسة للبرنامج.",
+  "تحسن العلاقة والتفاهم الإيجابي بين الطلاب وبقية المجتمع المدرسي.",
+  "معالجة المشكلات والتحديات الطارئة أثناء التنفيذ بحكمة وسرعة.",
+  "وضوح آلية قياس ورصد المخرجات والنتائج السلوكية والتحصيلية.",
+  "بث روح التعاون والعمل الجماعي بين المشاركين بالبرنامج.",
+  "الرضا العام عن دور البرنامج الفعال في الارتقاء بالخدمات الإرشادية."
+];
+
+export const getStableStatsForQuestion = (programId: string, qIdx: number) => {
+  const EXACT_IMAGE_STATS = [
+    { stronglyAgree: 27, agree: 11, neutral: 8, disagree: 4 }, // Item 1: 54%, 22%, 16%, 8%
+    { stronglyAgree: 29, agree: 13, neutral: 5, disagree: 3 }, // Item 2: 58%, 26%, 10%, 6%
+    { stronglyAgree: 32, agree: 11, neutral: 4, disagree: 3 }, // Item 3: 64%, 22%, 8%, 6%
+    { stronglyAgree: 31, agree: 13, neutral: 4, disagree: 2 }, // Item 4: 62%, 26%, 8%, 4%
+    { stronglyAgree: 32, agree: 8,  neutral: 7, disagree: 3 }, // Item 5: 64%, 16%, 14%, 6%
+    { stronglyAgree: 27, agree: 9,  neutral: 9, disagree: 5 }, // Item 6: 54%, 18%, 18%, 10%
+    { stronglyAgree: 28, agree: 12, neutral: 7, disagree: 3 }, // Item 7: 56%, 24%, 14%, 6%
+    { stronglyAgree: 30, agree: 12, neutral: 5, disagree: 3 }, // Item 8: 60%, 24%, 10%, 6%
+    { stronglyAgree: 31, agree: 12, neutral: 4, disagree: 3 }, // Item 9: 62%, 24%, 8%, 6%
+    { stronglyAgree: 31, agree: 12, neutral: 4, disagree: 3 }, // Item 10: 62%, 24%, 8%, 6%
+  ];
+
+  const idx = qIdx % 10;
+  const stat = EXACT_IMAGE_STATS[idx];
+
+  return {
+    stronglyAgree: stat.stronglyAgree,
+    stronglyAgreePct: stat.stronglyAgree * 2,
+    agree: stat.agree,
+    agreePct: stat.agree * 2,
+    neutral: stat.neutral,
+    neutralPct: stat.neutral * 2,
+    disagree: stat.disagree,
+    disagreePct: stat.disagree * 2
+  };
+};
+
+const formatAnalysisTextToHtml = (text: string) => {
+  if (!text) return "";
+  
+  // Convert Markdown bold (**text**) to HTML <strong>
+  let formatted = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  
+  const lines = formatted.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  
+  let htmlResult = "";
+  let inList = false;
+  
+  lines.forEach((line) => {
+    // Check if line starts with a number like "1." or Arabic "١." or bullet "*" or "-"
+    const isList = /^[0-9١٢٣٤٥٦٧٨٩\-\*•]+\.?\s*/.test(line);
+    const isConclusionHeader = line.includes("الخلاصة") || line.includes("توصيات") || line.includes("خاتمة");
+    
+    if (isList) {
+      if (!inList) {
+        htmlResult += `<div style="margin: 15px 0; padding-right: 5px;">`;
+        inList = true;
+      }
+      
+      // Match the list bullet/number and content
+      const match = line.match(/^([0-9١٢٣٤٥٦٧٨٩\-\*•]+\.?)\s*(.*)/);
+      const prefix = match ? match[1] : "•";
+      const content = match ? match[2] : line;
+      
+      htmlResult += `
+        <div style="display: table; width: 100%; margin-bottom: 12px; page-break-inside: avoid; break-inside: avoid;">
+          <div style="display: table-cell; width: 30px; vertical-align: top; text-align: right;">
+            <span style="background-color: #f0fdfa; color: #0d9488; font-weight: bold; padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #ccfbf1;">${prefix}</span>
+          </div>
+          <div style="display: table-cell; padding-right: 10px; font-size: 12.5px; line-height: 1.6; color: #334155; text-align: justify; vertical-align: top;">
+            ${content}
+          </div>
+        </div>
+      `;
+    } else {
+      if (inList) {
+        htmlResult += `</div>`;
+        inList = false;
+      }
+      
+      if (isConclusionHeader || line.startsWith("<strong>الخلاصة") || line.startsWith("الخلاصة")) {
+        htmlResult += `
+          <div style="margin-top: 20px; background-color: #fcfdfd; padding: 12px 15px; border-radius: 6px; font-size: 12.5px; line-height: 1.7; color: #0f766e; text-align: justify; border: 1px solid #e6f4f2; border-right: 4px solid #0d9488; page-break-inside: avoid; break-inside: avoid;">
+            ${line}
+          </div>
+        `;
+      } else {
+        htmlResult += `
+          <p style="margin: 0 0 12px 0; text-align: justify; font-size: 13px; line-height: 1.7; color: #334155;">
+            ${line}
+          </p>
+        `;
+      }
+    }
+  });
+  
+  if (inList) {
+    htmlResult += `</div>`;
+  }
+  
+  return htmlResult;
+};
+
+export const analyzeQuestionnaire = (programId: string) => {
+  const questionsList = (PROGRAM_QUESTIONS[programId] || fallbackQuestions).slice(0, 10);
+  let totalStronglyAgreePct = 0;
+  let totalAgreePct = 0;
+  let totalNeutralPct = 0;
+  let totalDisagreePct = 0;
+
+  const analyzedQuestions = questionsList.map((q, idx) => {
+    const stats = getStableStatsForQuestion(programId, idx);
+    const approvalPct = stats.stronglyAgreePct + stats.agreePct;
+    totalStronglyAgreePct += stats.stronglyAgreePct;
+    totalAgreePct += stats.agreePct;
+    totalNeutralPct += stats.neutralPct;
+    totalDisagreePct += stats.disagreePct;
+
+    return {
+      index: idx + 1,
+      question: q,
+      stats,
+      approvalPct
+    };
+  });
+
+  const numQ = questionsList.length || 1;
+  const avgStronglyAgree = totalStronglyAgreePct / numQ;
+  const avgAgree = totalAgreePct / numQ;
+  const avgNeutral = totalNeutralPct / numQ;
+  const avgDisagree = totalDisagreePct / numQ;
+  const overallApproval = avgStronglyAgree + avgAgree;
+
+  // Sort to find Top 3 / Bottom 3
+  const sortedByApproval = [...analyzedQuestions].sort((a, b) => b.approvalPct - a.approvalPct);
+  const top3 = sortedByApproval.slice(0, 3);
+  const bottom3 = [...analyzedQuestions].sort((a, b) => a.approvalPct - b.approvalPct).slice(0, 3);
+
+  return {
+    overallApproval: parseFloat(overallApproval.toFixed(1)),
+    avgStronglyAgree: parseFloat(avgStronglyAgree.toFixed(1)),
+    avgAgree: parseFloat(avgAgree.toFixed(1)),
+    avgNeutral: parseFloat(avgNeutral.toFixed(1)),
+    avgDisagree: parseFloat(avgDisagree.toFixed(1)),
+    top3,
+    bottom3,
+    analyzedQuestions
+  };
+};
+
+export const getQualitativeAnalysisForProgram = (programId: string, topQuestions: any[], bottomQuestions: any[]) => {
+  switch (programId) {
+    case 'prog_intro_week':
+      return {
+        dimension1: "<strong>المحور الأول: الكفاءة التنظيمية والبيئة الجاذبة:</strong> أظهرت المؤشرات الكمية ارتفاعاً ملحوظاً في شعور الطلاب بالارتياح والبهجة منذ اليوم الأول (نسبة موافقة عالية بلغت " + (topQuestions[0]?.approvalPct || "90") + "%). هذا يعكس نجاح الخطة التشغيلية لمدرسة الجشة في توفير استقبال جاذب وبيئة مادية مريحة وممتعة تكسر حاجز الخوف والرهبة.",
+        dimension2: "<strong>المحور الثاني: جودة البرامج الترفيهية والتفاعلية:</strong> سجلت المسابقات والألعاب المنفذة تفاعلاً إيجابياً ملموساً أسهم في سرعة انسجام الطلاب وبناء علاقات وصداقات جديدة بداخل الفصول الدراسية، مما ساعد في تذليل ظاهرة البكاء والرفض المدرسي وحول المدرسة إلى بيئة جاذبة آمنة.",
+        dimension3: "<strong>المحور الثالث: الشراكة الأسرية والربط الرقمي:</strong> كشفت النتائج عن رضا عالٍ من أولياء الأمور بشأن قنوات التواصل الرقمي واللقاء التعريفي. ومع ذلك، تشير بعض الردود المحايدة إلى أهمية تكثيف اللقاءات الحضورية وتعميق التوعية بالدور الوقائي والتنموي للموجه الطلابي كمرجعية دائمة.",
+        conclusion: "توصي الدراسة بتعميم أساليب التعزيز والاحتواء المطبقة بالأسبوع التمهيدي لتشمل مدار العام الدراسي، مع استدامة قنوات التواصل التفاعلية مع أولياء الأمور وتوفير حقائب إرشادية رقمية مبكرة قبل انطلاق العام الدراسي المقبل."
+      };
+    case 'prog_psych_prep':
+      return {
+        dimension1: "<strong>المحور الأول: البيئة التنظيمية للجان الاختبارات:</strong> أثبتت البيانات الكمية تفوق المدرسة في تهيئة اللجان الدراسية وتوفير متطلبات الراحة والهدوء من إضاءة وتهوية ومياه للشرب (بنسبة رضا ناهزت " + (topQuestions[0]?.approvalPct || "88") + "%). مما خفف من مظاهر القلق المادي والجسدي لدى الطلاب.",
+        dimension2: "<strong>المحور الثاني: الدعم النفسي والتربوي للهيئة التعليمية:</strong> تم رصد أثر إيجابي كبير للعبارات التحفيزية والنشرات النفسية الرقمية الموزعة من قبل التوجيه الطلابي والمعلمين في خفض مستويات التوتر وبناء الثقة بالنفس، مما انعكس إيجابياً على هدوء الطلاب وتركيزهم أثناء تقديم الإجابات.",
+        dimension3: "<strong>المحور الثالث: الثقافة الأسرية للتعامل مع الاختبارات:</strong> أظهرت مؤشرات الرضا تفاعلاً إيجابياً من أولياء الأمور مع برامج توعية النوم المنظم والتغذية السليمة. وتوضح البيانات وجود فرصة للتطوير في تكثيف النشرات التوعوية الرقمية لتصل لشرائح أوسع قبل الاختبارات بفترة كافية لتجنب السهر المفرط وضغوط اللحظات الأخيرة.",
+        conclusion: "الاستمرار في تفعيل العيادة الإرشادية طوال فترة الاختبارات، وإعداد ملفات تفاعلية لأساليب الاستذكار الجيد وتخفيف الضغوط النفسية مع تعزيز قنوات التدخل السريع للحالات الطارئة."
+      };
+    case 'prog_excellence':
+      return {
+        dimension1: "<strong>المحور الأول: دافعية الإنجاز والتقدير المعنوي:</strong> انعكس الاحتفاء والتكريم المنظم للمتفوقين بشكل إيجابي بالغ على دافعيتهم للتعلم ومواصلة التميز (نسبة موافقة عالية بلغت " + (topQuestions[0]?.approvalPct || "92") + "%). وأسهم ذلك في تعزيز الهوية الذاتية الإيجابية لديهم وبث روح المنافسة الشريفة بين عموم الطلاب.",
+        dimension2: "<strong>المحور الثاني: الرعاية الأكاديمية والمهارية التخصصية:</strong> سجلت الورش المهارية الإرشادية لمهارات التفكير الناقد وحل المشكلات تفاعلاً ممتازاً من الطلاب المتفوقين، مما يعزز مهارات التفكير العليا لديهم ولا يقتصر فقط على التحصيل المدرسي النظري.",
+        dimension3: "<strong>المحور الثالث: التواصل مع أولياء أمور الطلاب المتميزين:</strong> عبرت الأسر عن شكرها البالغ للمبادرات والخطابات الرسمية المرسلة لتهنئتهم، مما وثق عرى الترابط بين المدرسة والبيت. وتوصي النتائج بضرورة فتح مسارات لتبادل التجارب الناجحة بين أولياء الأمور للمحافظة على بيئات أسرية حاضنة ومحفزة.",
+        conclusion: "توسيع برامج الرعاية لتشمل المتفوقين مهارياً وموهبياً في المجالات غير الأكاديمية كالاختراع والرسم، وإشراك الطلاب المتفوقين في قيادة المبادرات الطلابية والمشاريع التعاونية المدرسية لتعزيز شخصيتهم القيادية."
+      };
+    case 'prog_support':
+      return {
+        dimension1: "<strong>المحور الأول: تشخيص الفجوات وبناء الخطط العلاجية:</strong> ساهم البرنامج بفاعلية في الكشف المبكر عن جوانب الضعف الأكاديمي وتصميم خطط دعم فردية متوازنة بمشاركة المعلمين والموجه الطلابي (نسبة رضا بلغت " + (topQuestions[0]?.approvalPct || "85") + "%). مما بعث الطمأنينة والثقة في نفوس الطلاب وأسرهم.",
+        dimension2: "<strong>المحور الثاني: فاعلية حصص التقوية وحلقات الدعم:</strong> أظهر التقييم تحسناً ملحوظاً في دافعية الطلاب نحو المشاركة والمتابعة الصفية اليومية بفضل تبسيط المناهج واستخدام استراتيجيات التدريس النشط الجاذبة المخصصة لهم بداخل مجموعات الدعم.",
+        dimension3: "<strong>المحور الثالث: الاستجابة الأسرية للمتابعة المنزلية:</strong> تشير المؤشرات إلى وجود وعي جيد بأهمية المتابعة المشتركة. إلا أن البنود الأقل موافقة تدعو إلى توفير آليات أكثر سهولة لمساعدة الوالدين على متابعة الواجبات المدرسية وتقديم تغذية راجعة دورية لولي الأمر حول معدل تحسن مستويات التحصيل.",
+        conclusion: "تكثيف اللقاءات الفردية الدورية لتقييم مستويات التقدم، واستعمال برمجيات تفاعلية سهلة الاستخدام تشرك ولي الأمر مباشرة في الخطة العلاجية، مع تفعيل أساليب التحفيز المعنوي والمادي المستمر."
+      };
+    case 'prog_behavior':
+      return {
+        dimension1: "<strong>المحور الأول: تعزيز الثقافة الانضباطية والحد من الغياب:</strong> أكدت النتائج نجاح البرنامج في خفض نسب الغياب الجماعي وغير المبرر وبث قيمة الانضباط الصباحي والمدرسي (نسبة موافقة عالية بلغت " + (topQuestions[0]?.approvalPct || "89") + "%). وتطبيق المدرسة لميثاق قواعد السلوك والمواظبة بشكل مرن ومحفز.",
+        dimension2: "<strong>المحور الثاني: أساليب التحفيز والتكريم للمنضبطين:</strong> ساهمت المسابقات وأوسمة الانضباط الأسبوعية بشكل واضح في خلق حافز إيجابي لدى الطلاب للالتزام بالحضور اليومي والحد من التأخر الصباحي، مما حسّن التفاعل الصفي الإجمالي بالمدرسة.",
+        dimension3: "<strong>المحور الثالث: المعالجة الفردية للحالات المتكررة والتعاون الأسري:</strong> تظهر التحليلات الكيفية استجابة عالية في دراسة الحالات الفردية للغياب وبناء خطط دعم لظروفهم الخاصة. وتبرز بعض الملاحظات حول الحاجة الملحة إلى تعاون أسر بعض الطلاب المتأخرين صباحاً في الالتزام بأوقات حضور الحافلات أو المركبات المدرسية.",
+        conclusion: "استدامة حملات التوعية الانضباطية الرقمية وحصر الحالات الأكثر مواظبة وتكريمهم دورياً بإذاعة المدرسة، وتوفير خطوط تواصل سريعة لحل المشكلات اللوجستية التي تؤثر على حضور الطلاب مبكراً."
+      };
+    case 'prog_counseling_board':
+      return {
+        dimension1: "<strong>المحور الأول: بناء جسور الشراكة الفاعلة:</strong> أسهمت مجالس التوجيه الطلابي في خلق فضاء تفاعلي رحب لمناقشة التحديات التربوية والسلوكية للطلاب بمشاركة بناءة من أولياء الأمور والهيئة التعليمية (بنسبة رضا بلغت " + (topQuestions[0]?.approvalPct || "91") + "%). مما أشعر الأسر بجدية الشراكة وعمقها.",
+        dimension2: "<strong>المحور الثاني: معالجة القضايا التربوية والسلوكية المستجدة:</strong> نجحت نقاشات المجلس في تلمس الحلول الواقعية والناجحة لظواهر سلوكية مثل الاستخدام المفرط للأجهزة الذكية، وتأثير الغياب قبل الإجازات، مما وحّد لغة التعامل والتوجه التربوي بين البيت والمدرسة.",
+        dimension3: "<strong>المحور الثالث: الخصوصية والسرية في الحالات الخاصة:</strong> أظهرت البيانات تقديراً كبيراً لالتزام الموجه الطلابي التام بالسرية والخصوصية التامة في تداول مشكلات الطلاب الخاصة. وتشير الملاحظات إلى رغبة في زيادة مرونة أوقات عقد اللقاءات لتلائم الموظفين وأصحاب الأعمال عبر الخيارات الرقمية عن بعد.",
+        conclusion: "استثمار المنصات الافتراضية لعقد بعض ورش العمل واللقاءات الإرشادية لضمان وصول أكبر شريحة من أولياء الأمور، مع صياغة ومتابعة توصيات المجالس بقرارات تشغيلية واضحة وملموسة."
+      };
+    default:
+      return {
+        dimension1: "<strong>البعد الأول: الأداء العام والجاهزية الإرشادية:</strong> أظهرت التحليلات الكمية تقديراً عالياً لتميز دور الموجه الطلابي بمدرسة الجشة في قيادة دفة فعاليات البرنامج وتنفيذ الأنشطة بوضوح وفاعلية نالت استحسان أغلب المشاركين (بنسبة موافقة ناهزت " + (topQuestions[0]?.approvalPct || "86") + "%).",
+        dimension2: "<strong>البعد الثاني: تفاعل وانسجام المجتمع المدرسي:</strong> اتضح جلياً مدى التعاون البناء من قبل الهيئة التعليمية والإدارية كعامل رئيسي في تسريع وثوقية الأثر وتعميق المهارات المكتسبة لدى الطلاب بداخل البيئة الصفية واللاصفية بمرونة عالية.",
+        dimension3: "<strong>البعد الثالث: دور الأسر والمنزل في تعزيز الأثر:</strong> أكدت النتائج وجود شراكة طيبة وحرص متبادل بين المدرسة والمنزل لتكامل الأدوار. وتبرز فرص التطوير في رفع وتيرة تبادل التقارير الرقمية التفصيلية لمستويات تقدم الأبناء السلوكية بانتظام.",
+        conclusion: "مواصلة بناء وتصميم برامج التوجيه الطلابي بالاعتماد على دراسات تحديد الاحتياجات الفعلية، مع تطويع التقنيات الحديثة في المتابعة وبث التوعية الإرشادية والوقائية المستمرة."
+      };
+  }
+};
+
+const AVAILABLE_MONTHS = [
+  { value: "2025-08", label: "شعبان 1446 / أغسطس 2025" },
+  { value: "2025-09", label: "رمضان 1446 / سبتمبر 2025" },
+  { value: "2025-10", label: "شوال 1446 / أكتوبر 2025" },
+  { value: "2025-11", label: "ذو القعدة 1446 / نوفمبر 2025" },
+  { value: "2025-12", label: "ذو الحجة 1446 / ديسمبر 2025" },
+  { value: "2026-01", label: "محرم 1447 / يناير 2026" },
+  { value: "2026-02", label: "صفر 1447 / فبراير 2026" },
+  { value: "2026-03", label: "ربيع الأول 1447 / مارس 2026" },
+  { value: "2026-04", label: "ربيع الآخر 1447 / أبريل 2026" },
+  { value: "2026-05", label: "جمادى الأولى 1447 / مايو 2026" },
+  { value: "2026-06", label: "جمادى الآخرة 1447 / يونيو 2026" },
+  { value: "2026-07", label: "رجب 1447 / يوليو 2026" },
+  { value: "2026-08", label: "شعبان 1447 / أغسطس 2026" },
+  { value: "2026-09", label: "رمضان 1447 / سبتمبر 2026" },
+  { value: "2026-10", label: "شوال 1447 / أكتوبر 2026" },
+  { value: "2026-11", label: "ذو القعدة 1447 / نوفمبر 2026" },
+  { value: "2026-12", label: "ذو الحجة 1447 / ديسمبر 2026" },
+];
+
+const getStatusStyles = (status?: 'تمت' | 'ملغاة' | 'مجدولة') => {
+  const s = status || 'تمت';
+  switch (s) {
+    case 'تمت':
+      return {
+        cardBorder: 'border-r-4 border-r-emerald-500 hover:border-emerald-400',
+        badgeBg: 'bg-emerald-100 text-emerald-800 border border-emerald-200/60',
+        label: 'تمت الزيارة ✅',
+        rowBg: '#f0fdf4', // Soft emerald for Word table
+        textClass: 'text-emerald-800'
+      };
+    case 'مجدولة':
+      return {
+        cardBorder: 'border-r-4 border-r-amber-500 hover:border-amber-400',
+        badgeBg: 'bg-amber-100 text-amber-800 border border-amber-200/60',
+        label: 'مجدولة ⏳',
+        rowBg: '#fef3c7', // Soft amber for Word table
+        textClass: 'text-amber-800'
+      };
+    case 'ملغاة':
+      return {
+        cardBorder: 'border-r-4 border-r-rose-500 hover:border-rose-400',
+        badgeBg: 'bg-rose-100 text-rose-800 border border-rose-200/60',
+        label: 'ملغاة ❌',
+        rowBg: '#fef2f2', // Soft red for Word table
+        textClass: 'text-rose-800'
+      };
+    default:
+      return {
+        cardBorder: 'border-r-4 border-r-emerald-500 hover:border-emerald-400',
+        badgeBg: 'bg-emerald-100 text-emerald-800 border border-emerald-200/60',
+        label: 'تمت الزيارة ✅',
+        rowBg: '#f0fdf4',
+        textClass: 'text-emerald-800'
+      };
+  }
+};
+
+export default function App() {
+  const [currentProgramId, setCurrentProgramId] = useState<string>("prog_intro_week");
+  const [selectedPhaseId, setSelectedPhaseId] = useState<string>("");
+  const [metricValues, setMetricValues] = useState<Record<string, number>>({});
+  const [aiActive, setAiActive] = useState<boolean>(false);
+
+  // Student list from Excel
+  const [students, setStudents] = useState<Student[]>([]);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [showStudentsModal, setShowStudentsModal] = useState<boolean>(false);
+
+  // Modals
+  const [showReportModal, setShowReportModal] = useState<boolean>(false);
+  const [showAdvisorModal, setShowAdvisorModal] = useState<boolean>(false);
+  const [showCaseStudyModal, setShowCaseStudyModal] = useState<boolean>(false);
+  const [showBroadcastModal, setShowBroadcastModal] = useState<boolean>(false);
+  const [showGuidanceReportsModal, setShowGuidanceReportsModal] = useState<boolean>(false);
+  const [showPresentationSlidesModal, setShowPresentationSlidesModal] = useState<boolean>(false);
+  const [presentationCurrentSlide, setPresentationCurrentSlide] = useState<number>(0);
+  const [selectedOperationalPlan, setSelectedOperationalPlan] = useState<OperationalPlan | null>(null);
+  const [showOperationalPlanModal, setShowOperationalPlanModal] = useState<boolean>(false);
+
+  // AI Assistant Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      role: "model",
+      content: "مرحباً أستاذ عبدالهادي! أنا مستشارك الإداري والتربوي الذكي بمدرسة الجشة. يمكنك طرح أي سؤال عليّ بخصوص لوائح وزارة التعليم (مثل الغياب والتأخر، خصم درجات السلوك والمواظبة، التعامل مع حالات التنمر، أو إعداد العقود السلوكية) وسأقوم بإرشادك فوراً."
+    }
+  ]);
+  const [chatInput, setChatInput] = useState<string>("");
+  const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // AI Case Study Generator state
+  const [caseStudyName, setCaseStudyName] = useState<string>("");
+  const [caseStudyClass, setCaseStudyClass] = useState<string>("");
+  const [caseStudyType, setCaseStudyType] = useState<string>("تأخر دراسي");
+  const [caseStudyNotes, setCaseStudyNotes] = useState<string>("");
+  const [caseStudyResult, setCaseStudyResult] = useState<string>("");
+  const [isCaseStudyLoading, setIsCaseStudyLoading] = useState<boolean>(false);
+  const [isPdfLoading, setIsPdfLoading] = useState<boolean>(false);
+
+  // AI Broadcast Generator state
+  const [broadcastTopic, setBroadcastTopic] = useState<string>("");
+  const [broadcastGrade, setBroadcastGrade] = useState<string>("المرحلة المتوسطة");
+  const [broadcastResult, setBroadcastResult] = useState<string>("");
+  const [isBroadcastLoading, setIsBroadcastLoading] = useState<boolean>(false);
+
+  // Report compilation tools states: Data Analysis & Photographic Evidence
+  const [evidenceImages, setEvidenceImages] = useState<Record<string, Array<{ id: string; name: string; url: string; caption: string }>>>({});
+  const [technicalAnalysis, setTechnicalAnalysis] = useState<Record<string, string>>({});
+  const [reportActiveTab, setReportActiveTab] = useState<"analysis" | "evidence" | "questionnaire">("analysis");
+  const [questionnaireSubTab, setQuestionnaireSubTab] = useState<"table" | "analysis">("table");
+  const [statsBooster, setStatsBooster] = useState<number>(0);
+
+  // Completed procedures tracking
+  const [completedProcedures, setCompletedProcedures] = useState<Record<string, string[]>>(() => {
+    const saved = localStorage.getItem("guidance_completed_procedures");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse guidance_completed_procedures", e);
+      }
+    }
+    return {
+      "prog_intro_week": ["iw1-0", "iw1-1", "iw1-2", "iw2-0"],
+      "prog_psych_prep": ["pp1-0", "pp1-1", "pp2-0"],
+      "prog_positive_behavior": ["pb1-0", "pb1-1", "pb1-2", "pb2-0", "pb2-1"],
+      "prog_career_guidance": ["cg1-0", "cg1-1"],
+      "prog_remedial_plan": ["rp1-0", "rp1-1", "rp1-2", "rp2-0"],
+      "prog_safe_internet": ["si1-0", "si1-1", "si2-0"],
+      "prog_anti_bullying": ["ab1-0", "ab1-1", "ab1-2", "ab2-0", "ab2-1"],
+      "prog_behavior_rules": ["br1-0", "br1-1", "br1-2", "br2-0"],
+      "prog_graduates": ["gr1-0", "gr1-1"],
+      "prog_parents_council": ["pc1-0", "pc1-1", "pc2-0"]
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem("guidance_completed_procedures", JSON.stringify(completedProcedures));
+  }, [completedProcedures]);
+
+  // Parents Visits state
+  const [showVisitsModal, setShowVisitsModal] = useState<boolean>(false);
+  const [visits, setVisits] = useState<ParentVisit[]>(() => {
+    const saved = localStorage.getItem("guidance_parent_visits");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse guidance_parent_visits", e);
+      }
+    }
+    return [
+      {
+        id: "v1",
+        parentName: "صالح بن علي الجري",
+        studentName: "عبدالرحمن صالح الجري",
+        className: "الصف الأول الابتدائي",
+        purpose: "استفسار عن مستوى الطالب الأكاديمي وعلاج صعوبات القراءة والتهجئة",
+        date: "2026-06-15",
+        notes: "تم عقد مقابلة وتزويد ولي الأمر ببطاقة المتابعة المنزلية بالتنسيق مع معلم لغتي.",
+        status: "تمت"
+      },
+      {
+        id: "v2",
+        parentName: "فهد بن محمد الدوسري",
+        studentName: "سلطان فهد الدوسري",
+        className: "الصف الثاني الابتدائي",
+        purpose: "دراسة حالة الغياب والتأخر الصباحي المتكرر وعلاجه سلوكياً وتربوياً",
+        date: "2026-06-18",
+        notes: "تم إبرام تعاقد سلوكي مع الطالب وولي الأمر لضبط مواعيد النوم والنقل المدرسي.",
+        status: "تمت"
+      },
+      {
+        id: "v3",
+        parentName: "خالد بن عبدالله السبيعي",
+        studentName: "فيصل خالد السبيعي",
+        className: "الصف الثالث الابتدائي",
+        purpose: "استلام شهادة شكر وتقدير لتفوق الطالب الدراسي وسلوكه المثالي",
+        date: "2026-07-02",
+        notes: "تم تقديم درع التميز وتوجيه الشكر لولي الأمر على تفاعله المثمر مع المدرسة.",
+        status: "تمت"
+      },
+      {
+        id: "v4",
+        parentName: "أحمد بن ياسين المطير",
+        studentName: "محمد أحمد المطير",
+        className: "الصف الأول الابتدائي",
+        purpose: "استفسار عن برنامج الأسبوع التمهيدي وتفاصيل التهيئة والدمج",
+        date: "2026-06-10",
+        notes: "تم شرح خطة الاستقبال وإشراكه بجلسات تفاعلية لكسر حاجز الرهبة لديه.",
+        status: "مجدولة"
+      },
+      {
+        id: "v5",
+        parentName: "عبدالله بن فهد المبرزي",
+        studentName: "نواف عبدالله المبرزي",
+        className: "الصف الخامس الابتدائي",
+        purpose: "بحث مشكلة تراجع درجات التحصيل المدرسي في مادة الرياضيات",
+        date: "2026-06-25",
+        notes: "تم التنسيق لإلحاق الطالب بحلقات الدعم الدراسي مع توفير دليل لمراجعة المفاهيم المنزلية.",
+        status: "ملغاة"
+      }
+    ];
+  });
+  const [visitParentName, setVisitParentName] = useState<string>("");
+  const [visitStudentName, setVisitStudentName] = useState<string>("");
+  const [visitClass, setVisitClass] = useState<string>("");
+  const [visitPurpose, setVisitPurpose] = useState<string>("");
+  const [visitDate, setVisitDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+  const [visitNotes, setVisitNotes] = useState<string>("");
+  const [visitStatus, setVisitStatus] = useState<'تمت' | 'ملغاة' | 'مجدولة'>("تمت");
+  const [visitSearchQuery, setVisitSearchQuery] = useState<string>("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [filterMonthFrom, setFilterMonthFrom] = useState<string>("");
+  const [filterMonthTo, setFilterMonthTo] = useState<string>("");
+  const [filterSingleMonth, setFilterSingleMonth] = useState<string>("");
+
+  // Save parent visits to local storage when changed
+  useEffect(() => {
+    localStorage.setItem("guidance_parent_visits", JSON.stringify(visits));
+  }, [visits]);
+
+  // Active Program data
+  const program = programsDB[currentProgramId];
+
+  // Generate stable monthly progression data for KPIs over the academic year 1447H
+  const monthlyData = useMemo(() => {
+    if (!program) return [];
+    const intervalData = getProgramIntervals(program.id);
+    const intervals = intervalData.intervals;
+
+    const t1 = program.kpis.chart1.target;
+    const t2 = program.kpis.chart2.target;
+    const t3 = program.kpis.chart3.target;
+
+    // Deterministic pseudo-random seed based on program id so values don't jitter on re-renders
+    const seedRandom = (str: string) => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      return () => {
+        const x = Math.sin(hash++) * 10000;
+        return x - Math.floor(x);
+      };
+    };
+
+    const rnd = seedRandom(program.id);
+
+    return intervals.map((m, idx) => {
+      const factor = (idx + 1) / intervals.length; // 0.11 to 1.0
+      const valFactor1 = 0.55 + 0.45 * factor;
+      const valFactor2 = 0.5 + 0.5 * factor;
+      const valFactor3 = 0.45 + 0.55 * factor;
+
+      // add small stable variation
+      const var1 = (rnd() - 0.5) * 0.08;
+      const var2 = (rnd() - 0.5) * 0.08;
+      const var3 = (rnd() - 0.5) * 0.08;
+
+      const v1 = Math.min(Math.round(t1 * (valFactor1 + var1)) + statsBooster, 100);
+      const v2 = Math.min(Math.round(t2 * (valFactor2 + var2)) + statsBooster, 100);
+      const v3 = Math.min(Math.round(t3 * (valFactor3 + var3)) + statsBooster, 100);
+
+      return {
+        name: m.name,
+        [program.kpis.chart1.title]: Math.max(v1, 20),
+        [program.kpis.chart2.title]: Math.max(v2, 20),
+        [program.kpis.chart3.title]: Math.max(v3, 20)
+      };
+    });
+  }, [program, statsBooster]);
+
+  // Initialize selected phase when program changes
+  useEffect(() => {
+    if (program && program.timeline && program.timeline.length > 0) {
+      setSelectedPhaseId(program.timeline[0].id);
+    }
+  }, [currentProgramId]);
+
+  // Load custom metrics and student data from localStorage on mount
+  useEffect(() => {
+    const savedMetrics = localStorage.getItem("guidance_metrics");
+    if (savedMetrics) {
+      try {
+        setMetricValues(JSON.parse(savedMetrics));
+      } catch (e) {
+        console.error("Failed to parse metric values", e);
+      }
+    }
+
+    const savedStudents = localStorage.getItem("guidance_students");
+    if (savedStudents) {
+      try {
+        setStudents(JSON.parse(savedStudents));
+      } catch (e) {
+        console.error("Failed to parse students list", e);
+      }
+    }
+
+    // Check if AI endpoint is active
+    fetch("/api/ai-status")
+      .then(res => res.json())
+      .then(data => setAiActive(!!data.active))
+      .catch(() => setAiActive(false));
+  }, []);
+
+  // Scroll to bottom of chat
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, isChatLoading]);
+
+  // Save metric changes
+  const handleMetricChange = (val: number) => {
+    const updated = { ...metricValues, [currentProgramId]: val };
+    setMetricValues(updated);
+    localStorage.setItem("guidance_metrics", JSON.stringify(updated));
+  };
+
+  // Add / Delete handlers for Parents Visits Log
+  const handleAddVisit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!visitParentName.trim() || !visitPurpose.trim()) return;
+
+    const newVisit: ParentVisit = {
+      id: "v_" + Date.now(),
+      parentName: visitParentName.trim(),
+      studentName: visitStudentName.trim() || "غير محدد",
+      className: visitClass.trim() || "غير محدد",
+      purpose: visitPurpose.trim(),
+      date: visitDate || new Date().toISOString().split('T')[0],
+      notes: visitNotes.trim() || "لا توجد ملاحظات إضافية.",
+      status: visitStatus
+    };
+
+    setVisits([newVisit, ...visits]);
+
+    // Reset fields except date (keep current date)
+    setVisitParentName("");
+    setVisitStudentName("");
+    setVisitClass("");
+    setVisitPurpose("");
+    setVisitNotes("");
+    setVisitStatus("تمت");
+  };
+
+  const handleDeleteVisit = (id: string) => {
+    setVisits(visits.filter(v => v.id !== id));
+    if (deleteConfirmId === id) {
+      setDeleteConfirmId(null);
+    }
+  };
+
+  const getMetricValue = () => {
+    if (metricValues[currentProgramId] !== undefined) {
+      return metricValues[currentProgramId];
+    }
+    return program?.kpis?.metric?.value ?? 0;
+  };
+
+  // Compute monthly stats for parent visits
+  const getMonthlyStats = () => {
+    const counts: Record<string, number> = {};
+    visits.forEach(v => {
+      if (!v.date) return;
+      const parts = v.date.split("-");
+      if (parts.length >= 2) {
+        const yearMonth = `${parts[0]}-${parts[1]}`;
+        counts[yearMonth] = (counts[yearMonth] || 0) + 1;
+      }
+    });
+    return Object.entries(counts).map(([month, count]) => {
+      const parts = month.split("-");
+      const m = parts[1];
+      const y = parts[0];
+      let arabicMonth = month;
+      if (m === "01") arabicMonth = "يناير";
+      else if (m === "02") arabicMonth = "فبراير";
+      else if (m === "03") arabicMonth = "مارس";
+      else if (m === "04") arabicMonth = "أبريل";
+      else if (m === "05") arabicMonth = "مايو";
+      else if (m === "06") arabicMonth = "يونيو";
+      else if (m === "07") arabicMonth = "يوليو";
+      else if (m === "08") arabicMonth = "أغسطس";
+      else if (m === "09") arabicMonth = "سبتمبر";
+      else if (m === "10") arabicMonth = "أكتوبر";
+      else if (m === "11") arabicMonth = "نوفمبر";
+      else if (m === "12") arabicMonth = "ديسمبر";
+      return { month, label: `${arabicMonth} ${y}`, count };
+    }).sort((a, b) => a.month.localeCompare(b.month));
+  };
+
+  // Helper for rendering responsive SVG circular progress rings
+  const renderCircularProgress = (percentage: number, color: string, label: string) => {
+    const radius = 40;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    return (
+      <div className="flex flex-col items-center justify-center p-4 bg-slate-50/50 rounded-2xl border border-slate-100/80 hover:shadow-sm transition-all duration-200">
+        <div className="relative w-24 h-24 flex items-center justify-center">
+          <svg className="w-full h-full transform -rotate-90">
+            {/* Background ring */}
+            <circle
+              cx="48"
+              cy="48"
+              r={radius}
+              className="stroke-slate-200/60 fill-transparent"
+              strokeWidth="7"
+            />
+            {/* Highlighted ring */}
+            <circle
+              cx="48"
+              cy="48"
+              r={radius}
+              className="fill-transparent transition-all duration-1000 ease-out"
+              stroke={color}
+              strokeWidth="8"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+            />
+          </svg>
+          <span className="absolute text-xl font-black text-slate-800">{percentage}%</span>
+        </div>
+        <span className="mt-3 text-sm font-bold text-slate-700">{label}</span>
+      </div>
+    );
+  };
+
+  // Handle student Excel import
+  const handleExcelImport = (file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+
+        const importedStudents: Student[] = [];
+        json.forEach((row) => {
+          if (!row || row.length < 2) return;
+          // Look for columns: name (col index 0 or 1), class (col index 2 or similar)
+          const name = row[0] ? String(row[0]).trim() : '';
+          const className = row[2] ? String(row[2]).trim() : 'عام';
+          
+          if (name && name !== 'الاسم' && name !== 'اسم الطالب' && name !== 'اسم الطالبه') {
+            importedStudents.push({ name, className });
+          }
+        });
+
+        if (importedStudents.length > 0) {
+          setStudents(importedStudents);
+          localStorage.setItem("guidance_students", JSON.stringify(importedStudents));
+          alert(`تم استيراد ${importedStudents.length} طالباً بنجاح!`);
+        } else {
+          alert("لم يتم العثور على أي كشوفات طلاب صالحة بالملف.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("حدث خطأ أثناء قراءة ملف الإكسل. يرجى مراجعة صياغة الكشف.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // Drag and Drop handlers for Excel
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleExcelImport(file);
+    }
+  };
+
+  // Lucide icon mapping
+  const getIconComponent = (name: string, className = "w-6 h-6") => {
+    switch (name) {
+      case "School": return <School className={className} />;
+      case "Brain": return <Brain className={className} />;
+      case "Award": return <Award className={className} />;
+      case "Briefcase": return <Briefcase className={className} />;
+      case "TrendingUp": return <TrendingUp className={className} />;
+      case "Laptop": return <Laptop className={className} />;
+      case "Heart": return <Heart className={className} />;
+      case "Scale": return <Scale className={className} />;
+      case "GraduationCap": return <GraduationCap className={className} />;
+      case "Users": return <Users className={className} />;
+      case "Compass": return <Compass className={className} />;
+      case "Sparkles": return <Sparkles className={className} />;
+      case "ShieldCheck": return <ShieldCheck className={className} />;
+      case "ShieldAlert": return <ShieldAlert className={className} />;
+      case "Smile": return <Smile className={className} />;
+      case "Clock": return <Clock className={className} />;
+      case "UserCheck": return <UserCheck className={className} />;
+      default: return <School className={className} />;
+    }
+  };
+
+  // Convert Gemini Markdown to stylized React components
+  const renderMarkdown = (text: string) => {
+    if (!text) return null;
+    const lines = text.split("\n");
+    return (
+      <div className="space-y-2 text-right leading-relaxed text-slate-700" style={{ direction: "rtl" }}>
+        {lines.map((line, idx) => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("### ")) {
+            return (
+              <h4 key={idx} className="text-base font-extrabold text-teal-800 mt-5 mb-2 flex items-center gap-2 border-r-4 border-teal-500 pr-2">
+                <Sparkles className="w-4 h-4 text-teal-600 animate-pulse" />
+                {trimmed.slice(4)}
+              </h4>
+            );
+          }
+          if (trimmed.startsWith("## ")) {
+            return (
+              <h3 key={idx} className="text-lg font-bold text-slate-950 mt-6 mb-3 pb-1 border-b border-slate-100 flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                {trimmed.slice(3)}
+              </h3>
+            );
+          }
+          if (trimmed.startsWith("# ")) {
+            return (
+              <h2 key={idx} className="text-xl font-black text-teal-900 mt-8 mb-4 border-r-4 border-teal-600 pr-3">
+                {trimmed.slice(2)}
+              </h2>
+            );
+          }
+          if (trimmed.startsWith("* ") || trimmed.startsWith("- ")) {
+            return (
+              <div key={idx} className="flex items-start gap-2 mr-4 my-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-500 mt-2 shrink-0" />
+                <span className="text-sm sm:text-base">{renderBoldText(trimmed.slice(2))}</span>
+              </div>
+            );
+          }
+          if (/^\d+\.\s/.test(trimmed)) {
+            const num = trimmed.match(/^\d+/)?.[0];
+            const content = trimmed.replace(/^\d+\.\s/, "");
+            return (
+              <div key={idx} className="flex items-start gap-2 mr-4 my-1">
+                <span className="bg-teal-50 text-teal-700 font-bold px-1.5 py-0.5 rounded text-xs shrink-0 mt-0.5 border border-teal-100">{num}</span>
+                <span className="text-sm sm:text-base">{renderBoldText(content)}</span>
+              </div>
+            );
+          }
+          if (!trimmed) return <div key={idx} className="h-2" />;
+          return <p key={idx} className="text-sm sm:text-base text-slate-700 leading-relaxed my-1">{renderBoldText(trimmed)}</p>;
+        })}
+      </div>
+    );
+  };
+
+  const renderBoldText = (text: string) => {
+    const parts = text.split(/\*\*(.*?)\*\*/g);
+    return parts.map((part, i) => {
+      if (i % 2 === 1) {
+        return <strong key={i} className="font-bold text-teal-950">{part}</strong>;
+      }
+      return part;
+    });
+  };
+
+  // --- API CALLS ---
+
+  // 1. Send Advisor Message (offline rule matching backup)
+  const sendAdvisorMessage = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setChatMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setIsChatLoading(true);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMsg, history: chatMessages })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setChatMessages(prev => [...prev, { role: "model", content: data.text }]);
+      } else {
+        throw new Error("API call failed");
+      }
+    } catch (err) {
+      console.warn("AI endpoint offline, falling back to local preprogrammed rules.", err);
+      // Local Arabic Rule Matching Fallback
+      let reply = "";
+      const lower = userMsg.toLowerCase();
+      if (lower.includes("غياب") || lower.includes("تاخر") || lower.includes("تأخر") || lower.includes("مواظبة")) {
+        reply = "حسب لائحة السلوك والمواظبة المعتمدة بالمملكة:\n* يحسم (درجة واحدة) عن كل يوم غياب بدون عذر مقبول.\n* يحسم (0.25 درجة) عن الغياب لحصة دراسية واحدة.\n* عند تخطي الغياب 15 يوماً يتم استدعاء ولي الأمر وتوقيع تعهد خطي وتفعيل لجان التوجيه الطلابي فوراً لحماية الطالب علاجياً.";
+      } else if (lower.includes("تنمر") || lower.includes("عنف") || lower.includes("ضرب") || lower.includes("شجار")) {
+        reply = "الاعتداءات الجسدية والتنمر تندرج تحت مخالفات الدرجة الثالثة بسلوك الطالب:\n1. حسم 3 درجات من السلوك فوراً.\n2. أخذ تعهد خطي على الطالب وولي أمره بالالتزام.\n3. نقل الطالب لفصل آخر عند تكرار المخالفة.\n4. عقد جلسات إرشادية لتعديل السلوك وتفريغ الشحنات العدوانية بطرق بناءة.";
+      } else if (lower.includes("عقد") || lower.includes("سلوك") || lower.includes("إقرار")) {
+        reply = "العقد السلوكي هو وثيقة تربوية ثنائية مبرمة بين الطالب والموجه الطلابي يلتزم فيها الطالب بتحقيق مجموعة من التعديلات السلوكية الإيجابية خلال مدة معينة مقابل مكافآت تربوية مجدية. ننصح بإشراك المعلم كشاهد وداعم للعقد بالفصل.";
+      } else {
+        reply = "عذراً، المستشار الإداري يعمل حالياً بأوفلاين كود لعدم تفعيل API Key. يرجى الاستفسار عن كلمات مفتاحية مثل: (غياب، تأخر، تنمر، شجار، عقد سلوكي).";
+      }
+      
+      // Simulate typing delay for offline fallback
+      setTimeout(() => {
+        setChatMessages(prev => [...prev, { role: "model", content: reply }]);
+      }, 600);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  // 2. Generate Case Study Plan
+  const generateCaseStudy = async () => {
+    setIsCaseStudyLoading(true);
+    setCaseStudyResult("");
+
+    try {
+      const response = await fetch("/api/case-study", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentName: caseStudyName,
+          className: caseStudyClass,
+          problemType: caseStudyType,
+          notes: caseStudyNotes
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setCaseStudyResult(data.text);
+      } else {
+        throw new Error("Failed generating case study");
+      }
+    } catch (err) {
+      console.warn("AI failed, rendering highly detailed Arabic Case Study Template.");
+      // Gorgeous template backup
+      let backupResult = `
+# خطة علاجية تربوية تفصيلية لدراسة حالة: ${caseStudyType}
+
+## 1. بيانات الحالة والتشخيص المبدئي
+* **اسم الطالب**: ${caseStudyName || "طالب محدد"}
+* **الصف الدراسي**: ${caseStudyClass || "غير محدد"}
+* **المشكلة السلوكية/الأكاديمية**: ${caseStudyType}
+* **ملاحظات أولية**: ${caseStudyNotes || "ملاحظة غياب الدافعية وتأثر المحيط المدرسي للطالب."}
+
+## 2. الأهداف الإرشادية والعلاجية المعتمدة
+* **الأهداف قصيرة المدى**: تعديل مباشر للسلوك السلبي، والتزام الطالب بحضور الحصص الدراسية وتوثيق العقود.
+* **الأهداف طويلة المدى**: تنمية مهارات التكيف السلوكي والانضباط الذاتي لرفع مستوى التحصيل الأكاديمي والمهني.
+
+## 3. التدخل الإجرائي والبرنامج الزمني للدعم
+### أ. دور الموجه الطلابي:
+* إجراء جلسة إرشادية فردية أسبوعية لتعزيز ثقته وبناء جسور تواصل آمنة.
+* إبرام عقد سلوكي/تحفيزي بمشاركة المعلمين وإشعار الطالب بنتائجه دورياً.
+
+### ب. دور الهيئة التعليمية بالفصل:
+* دمج الطالب بالأنشطة الجماعية والتركيز على مكافأة سلوكه الإيجابي لتعميمه.
+* تقديم حصص تقوية مبسطة ومتابعة الواجبات اليومية دون توبيخ أو تهميش.
+
+### ج. دور الأسرة وأولياء الأمور:
+* الالتزام بتوفير بيئة أسرية داعمة وهادئة وتنظيم النوم وتقنين الجوال.
+* التواصل مع المدرسة كل أسبوع لمتابعة جدول السلوك والتحصيل وتوقيع الملاحظات.
+
+## 4. مؤشرات النجاح والتقييم الختامي
+* ارتفاع مستوى درجات التقييم الأسبوعية.
+* خلو سجلات الانضباط المدرسي من أي مخالفات متقدمة للطالب لمدة 21 يوماً متواصلة.
+      `;
+      setCaseStudyResult(backupResult);
+    } finally {
+      setIsCaseStudyLoading(false);
+    }
+  };
+
+  // Export Case Study Report as PDF using jsPDF and html2canvas
+  const exportCaseStudyPDF = async () => {
+    const element = document.getElementById("case-study-print-target");
+    if (!element) return;
+
+    setIsPdfLoading(true);
+
+    try {
+      // Ensure fonts are loaded for high-fidelity Arabic rendering
+      if (document.fonts) {
+        await document.fonts.ready;
+      }
+
+      // Capture the element as a high-quality canvas
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        windowWidth: 800, // Keep layout structure stable
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 295; // A4 page height limit
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Page 1
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
+      heightLeft -= pageHeight;
+
+      // Split across multiple pages if necessary
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`خطة_تدخل_إرشادي_${caseStudyName || "طالب"}.pdf`);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+    } finally {
+      setIsPdfLoading(false);
+    }
+  };
+
+  // 3. Generate Broadcast School Radio Script
+  const generateBroadcast = async () => {
+    setIsBroadcastLoading(true);
+    setBroadcastResult("");
+
+    try {
+      const response = await fetch("/api/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: broadcastTopic,
+          gradeLevel: broadcastGrade
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setBroadcastResult(data.text);
+      } else {
+        throw new Error("Failed generating broadcast");
+      }
+    } catch (err) {
+      console.warn("AI broadcast failed, rendering standard elegant Arabic broadcast script.");
+      let backupResult = `
+# البرنامج الإذاعي المتكامل حول موضوع: "${broadcastTopic || "الانضباط والتحفيز المدرسي"}"
+**المدرسة**: مدرسة الجشة المتوسطة
+**إشراف الموجه الطلابي**: عبدالهادي بن محمد المحسن
+
+---
+
+### الطالب الأول (المقدم)
+بسم الله الرحمن الرحيم، الحمد لله الذي بنعمته تتم الصالحات، وبفضله تتنزل الخيرات والبركات. مديرنا الفاضل، معلمينا الأعزاء، زملائي الطلاب الكرام.. السلام عليكم ورحمة الله وبركاته.
+يسعدنا في هذا الصباح المشرق بمدرسة الجشة المتوسطة أن نقدم برنامجنا الإذاعي الهام عن موضوع: **"${broadcastTopic || "الانضباط المدرسي"}"**، والذي يعتبر أساس تفوقنا واعتزازنا بقيمنا الإسلامية الرفيعة. وخير ما نستهل به لقاءنا آيات عطرة يتلوها علينا الزميل: [اسم الطالب].
+
+### الطالب الثاني (القرآن والحديث)
+أعوذ بالله من الشيطان الرجيم: {يَرْفَعِ اللَّهُ الَّذِينَ آمَنُوا مِنكُمْ وَالَّذِينَ أُوتُوا الْعِلْمَ دَرَجَاتٍ ۚ وَاللَّهُ بِمَا تَعْمَلُونَ خَبِيرٌ}.
+صدق الله العظيم. وجاء في الحديث النبوي الشريف عن الالتزام والخلق الحسن، قال رسول الله صلى الله عليه وسلم: (إن خياركم أحسنكم أخلاقاً). صدق رسول الله صلى الله عليه وسلم.
+
+### الطالب الثالث (كلمة الصباح)
+زملائي الأفاضل، إن نجاح رحلتنا التعليمية يبدأ من انضباطنا الأخلاقي والتزامنا بقواعد السلوك والمواظبة بمدرستنا الحبيبة. إن احترامنا لمعلمينا، واهتمامنا بكتبنا المدرسية، وحضورنا المبكر ليس مجرد أنظمة، بل هي هوية المسلم الطموح والشاب الواعد الذي تسعد به أسرته ووطنه تحقيقاً لرؤية مملكتنا الغالية 2030. فلنكن قدوة في كل تصرفاتنا.
+
+### الطالب الرابع (هل تعلم والحكمة)
+* **هل تعلم**: أن الالتزام بالطابور الصباحي ينشط الدورة الدموية ويهيئ العقل لاستقبال المهارات اليومية بتركيز مضاعف؟
+* **الحكمة**: تقول الحكمة: "من سار على الدرب وصل، ومن طلب العلا سهر الليالي بالعمل والجد والاجتهاد".
+
+### الطالب الأول (المقدم - الخاتمة)
+إلى هنا نصل لختام إذاعتنا اليوم، سائلين المولى عز وجل أن يبارك في علمنا وعملنا، وأن يجعلنا قرة عين لآبائنا ومعلمينا. نشكر لكم طيب الاستماع والسلام عليكم ورحمة الله وبركاته.
+      `;
+      setBroadcastResult(backupResult);
+    } finally {
+      setIsBroadcastLoading(false);
+    }
+  };
+
+  // Auto-generate detailed statistical analysis of the KPI trend in Arabic
+  const handleAutoGenerateAnalysis = () => {
+    if (!program) return;
+    const kpi1 = program.kpis.chart1;
+    const kpi2 = program.kpis.chart2;
+    const kpi3 = program.kpis.chart3;
+
+    const firstMonth = monthlyData[0];
+    const lastMonth = monthlyData[monthlyData.length - 1];
+
+    const val1_start = firstMonth ? firstMonth[kpi1.title] : 0;
+    const val1_end = lastMonth ? lastMonth[kpi1.title] : 0;
+    const val2_start = firstMonth ? firstMonth[kpi2.title] : 0;
+    const val2_end = lastMonth ? lastMonth[kpi2.title] : 0;
+    const val3_start = firstMonth ? firstMonth[kpi3.title] : 0;
+    const val3_end = lastMonth ? lastMonth[kpi3.title] : 0;
+
+    const growth1 = val1_end - val1_start;
+    const growth2 = val2_end - val2_start;
+    const growth3 = val3_end - val3_start;
+
+    const text = `بناءً على التقارير الإحصائية والبيانات المرصودة لمؤشرات الأداء عبر الأشهر الدراسية للعام الدراسي بمدرسة الجشة المتوسطة، نورد هذا التحليل الفني المفصل لمسار تقدم البرنامج وأثره العلاجي والتربوي:
+
+1. **تحليل مؤشر (${kpi1.title})**: 
+سجل المؤشر الأول قراءة مبدئية بلغت (${val1_start}%) عند انطلاق أعمال البرنامج بمدرسة الجشة المتوسطة، وتدرج بالصعود الإيجابي عبر الأشهر الدراسية المختلفة نتيجة التزام التوجيه الطلابي بالخطة العلاجية المعتمدة وتكثيف المتابعة الأسبوعية، ليغلق المؤشر عند ذروة متميزة بلغت (${val1_end}%) محققاً نسبة نمو صافية إجمالية قدرها (+${growth1}%)، وهو ما يلبي طموح البرنامج واقترابه الكبير من النسبة المستهدفة البالغة (${kpi1.target}%).
+
+2. **تحليل مؤشر (${kpi2.title})**:
+أظهرت قراءات هذا المؤشر استقراراً ملحوظاً ونمواً تدريجياً متوازناً، حيث بدأت القراءات الأولى من نسبة (${val2_start}%) لتتجاوز في نهاية الفصل الدراسي حاجز (${val2_end}%) بنمو إجمالي بلغ (+${growth2}%)، وهو ما يعكس التجاوب الفعلي والمشاركة الإيجابية العالية للهيئة التعليمية بالفصل الدراسي وأثر التوعية بقواعد السلوك والمواظبة.
+
+3. **تحليل مؤشر (${kpi3.title})**:
+بدأ المؤشر الثالث من مستوى قياس أولي قدره (${val3_start}%) وشهد قفزة نوعية متسارعة عبر اللجان والفعاليات المنفذة ليبلغ نهايته الإحصائية (${val3_end}%) بنمو قدره (+${growth3}%)، وهو نجاح متميز يؤكد فاعلية الأدوات الإرشادية المستخدمة وملاءمتها لمتطلبات الرعاية والوقاية للطلاب الجدد.
+
+**الخلاصة والتوصيات الإحصائية**:
+تظهر المتابعة الإحصائية جدوى وفاعلية التدخلات الإرشادية والتوجيهية المنفذة بمدرسة الجشة المتوسطة لرفع مستوى تفوق الطلاب والحد من غيابهم. ونوصي بمواصلة العمل بهذه الآليات وتوسيع مشاركة الهيئة الإدارية والتعليمية وأولياء الأمور لضمان استدامة الأثر الإيجابي ونشر ثقافة الانضباط السلوكي والتميز الأكاديمي.`;
+
+    setTechnicalAnalysis(prev => ({ ...prev, [program.id]: text }));
+  };
+
+  // Helper for reading image as base64 and updating evidenceImages state
+  const handleEvidenceImageUpload = (programId: string, imageId: string, file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64Url = e.target?.result as string;
+      setEvidenceImages(prev => {
+        const currentList = prev[programId] || [
+          { id: "img1", name: "", url: "", caption: "الشاهد الأول: لقطة من الفعاليات المنفذة بمدرسة الجشة بمشاركة الطلاب" },
+          { id: "img2", name: "", url: "", caption: "الشاهد الثاني: نماذج من مستندات وأوراق العمل بملف إنجاز البرنامج" }
+        ];
+        
+        const updatedList = currentList.map(img => {
+          if (img.id === imageId) {
+            return { ...img, url: base64Url, name: file.name };
+          }
+          return img;
+        });
+
+        // if imageId doesn't exist (custom added), append it
+        if (!currentList.some(img => img.id === imageId)) {
+          updatedList.push({ id: imageId, name: file.name, url: base64Url, caption: "شاهد إضافي موثق للبرنامج" });
+        }
+        return { ...prev, [programId]: updatedList };
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleEvidenceCaptionChange = (programId: string, imageId: string, caption: string) => {
+    setEvidenceImages(prev => {
+      const currentList = prev[programId] || [
+        { id: "img1", name: "", url: "", caption: "الشاهد الأول: لقطة من الفعاليات المنفذة بمدرسة الجشة بمشاركة الطلاب" },
+        { id: "img2", name: "", url: "", caption: "الشاهد الثاني: نماذج من مستندات وأوراق العمل بملف إنجاز البرنامج" }
+      ];
+      const updatedList = currentList.map(img => {
+        if (img.id === imageId) {
+          return { ...img, caption };
+        }
+        return img;
+      });
+      return { ...prev, [programId]: updatedList };
+    });
+  };
+
+  const addCustomEvidenceImage = (programId: string) => {
+    const newId = `custom_${Date.now()}`;
+    setEvidenceImages(prev => {
+      const currentList = prev[programId] || [
+        { id: "img1", name: "", url: "", caption: "الشاهد الأول: لقطة من الفعاليات المنفذة بمدرسة الجشة بمشاركة الطلاب" },
+        { id: "img2", name: "", url: "", caption: "الشاهد الثاني: نماذج من مستندات وأوراق العمل بملف إنجاز البرنامج" }
+      ];
+      return {
+        ...prev,
+        [programId]: [
+          ...currentList,
+          { id: newId, name: "", url: "", caption: "شاهد إضافي موثق للبرنامج" }
+        ]
+      };
+    });
+  };
+
+  const deleteEvidenceImage = (programId: string, imageId: string) => {
+    setEvidenceImages(prev => {
+      const currentList = prev[programId] || [
+        { id: "img1", name: "", url: "", caption: "الشاهد الأول: لقطة من الفعاليات المنفذة بمدرسة الجشة بمشاركة الطلاب" },
+        { id: "img2", name: "", url: "", caption: "الشاهد الثاني: نماذج من مستندات وأوراق العمل بملف إنجاز البرنامج" }
+      ];
+      return {
+        ...prev,
+        [programId]: currentList.filter(img => img.id !== imageId)
+      };
+    });
+  };
+
+  // Technical Report HTML Compiler for Printing
+  const compileTechnicalReportHtml = (isWord = false) => {
+    const width = 600;
+    const height = 180;
+    const padding = 35;
+    const chartWidth = width - padding * 2;
+    const chartHeight = height - padding * 2;
+    const intervalData = getProgramIntervals(program.id);
+    const monthsShort = intervalData.intervals.map(item => item.short);
+
+    const getLinePoints = (key: string) => {
+      return monthlyData.map((d, i) => {
+        const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+        const y = padding + chartHeight - (d[key] / 100 * chartHeight);
+        return `${x},${y}`;
+      }).join(' ');
+    };
+
+    const kpi1 = program.kpis.chart1;
+    const kpi2 = program.kpis.chart2;
+    const kpi3 = program.kpis.chart3;
+
+    const points1 = getLinePoints(kpi1.title);
+    const points2 = getLinePoints(kpi2.title);
+    const points3 = getLinePoints(kpi3.title);
+
+    const staticChartSvg = `
+      <div style="margin-top: 20px; text-align: center;">
+        <h4 style="margin: 0 0 10px 0; font-size: 13px; color: #1e293b; font-weight: bold; text-align: right; border-right: 4px solid #0d9488; padding-right: 8px;">📈 الرسم البياني لتطور مؤشرات الأداء (${intervalData.label}):</h4>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" style="width: 100%; height: auto; font-family: 'Tajawal', sans-serif; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; direction: ltr;">
+          <line x1="${padding}" y1="${padding}" x2="${width - padding}" y2="${padding}" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="2,2" />
+          <line x1="${padding}" y1="${padding + chartHeight / 2}" x2="${width - padding}" y2="${padding + chartHeight / 2}" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="2,2" />
+          <line x1="${padding}" y1="${padding + chartHeight}" x2="${width - padding}" y2="${padding + chartHeight}" stroke="#cbd5e1" stroke-width="1.5" />
+          
+          <text x="${padding - 8}" y="${padding + 3}" font-size="8" fill="#64748b" text-anchor="end">100%</text>
+          <text x="${padding - 8}" y="${padding + chartHeight / 2 + 3}" font-size="8" fill="#64748b" text-anchor="end">50%</text>
+          <text x="${padding - 8}" y="${padding + chartHeight + 3}" font-size="8" fill="#64748b" text-anchor="end">0%</text>
+
+          ${monthsShort.map((m, i) => {
+            const x = padding + (i * (chartWidth / (monthsShort.length - 1)));
+            return `<text x="${x}" y="${padding + chartHeight + 14}" font-size="8" fill="#64748b" text-anchor="middle" font-weight="bold">${m}</text>`;
+          }).join('')}
+
+          <polyline fill="none" stroke="${kpi1.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${points1}" />
+          <polyline fill="none" stroke="${kpi2.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${points2}" />
+          <polyline fill="none" stroke="${kpi3.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${points3}" />
+
+          ${monthlyData.map((d, i) => {
+            const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+            const y = padding + chartHeight - (d[kpi1.title] / 100 * chartHeight);
+            return `<circle cx="${x}" cy="${y}" r="3" fill="#ffffff" stroke="${kpi1.color}" stroke-width="1.5" />`;
+          }).join('')}
+
+          ${monthlyData.map((d, i) => {
+            const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+            const y = padding + chartHeight - (d[kpi2.title] / 100 * chartHeight);
+            return `<circle cx="${x}" cy="${y}" r="3" fill="#ffffff" stroke="${kpi2.color}" stroke-width="1.5" />`;
+          }).join('')}
+
+          ${monthlyData.map((d, i) => {
+            const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+            const y = padding + chartHeight - (d[kpi3.title] / 100 * chartHeight);
+            return `<circle cx="${x}" cy="${y}" r="3" fill="#ffffff" stroke="${kpi3.color}" stroke-width="1.5" />`;
+          }).join('')}
+
+          <g transform="translate(${width / 2 - 130}, 14)">
+            <circle cx="0" cy="-1" r="3" fill="${kpi1.color}" />
+            <text x="10" y="2" font-size="8" fill="#334155" font-weight="bold">${kpi1.title}</text>
+
+            <circle cx="100" cy="-1" r="3" fill="${kpi2.color}" />
+            <text x="110" y="2" font-size="8" fill="#334155" font-weight="bold">${kpi2.title}</text>
+
+            <circle cx="200" cy="-1" r="3" fill="${kpi3.color}" />
+            <text x="210" y="2" font-size="8" fill="#334155" font-weight="bold">${kpi3.title}</text>
+          </g>
+        </svg>
+      </div>
+    `;
+
+    const wordChartHtml = `
+      <div style="margin-top: 20px; text-align: right; page-break-inside: avoid; break-inside: avoid;">
+        <h4 style="margin: 0 0 10px 0; font-size: 13px; color: #1e293b; font-weight: bold; border-right: 4px solid #0d9488; padding-right: 8px;">📈 المخطط البياني لتطور مؤشرات الأداء (مُنسّق لبرنامج Word):</h4>
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; font-family: 'Tajawal', sans-serif;">
+          <thead>
+            <tr style="background-color: #f1f5f9; text-align: center;">
+              <th style="padding: 6px; border: 1px solid #cbd5e1; font-size: 11px; font-weight: bold; width: 25%;">${intervalData.tableHeader}</th>
+              <th style="padding: 6px; border: 1px solid #cbd5e1; font-size: 11px; font-weight: bold; width: 75%;">نسب الإنجاز لمؤشرات الأداء للبرنامج (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${monthlyData.map((d, i) => `
+              <tr style="background-color: ${i % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                <td style="padding: 10px; border: 1px solid #cbd5e1; font-size: 11px; font-weight: bold; text-align: center; vertical-align: middle;">
+                  ${d.name}
+                </td>
+                <td style="padding: 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: right;">
+                  <!-- KPI 1 -->
+                  <div style="margin-bottom: 6px;">
+                    <span style="font-size: 10px; font-weight: bold; color: #334155; display: inline-block; width: 140px; text-align: right; vertical-align: middle; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">${kpi1.title}:</span>
+                    <table style="display: inline-table; width: 220px; height: 10px; border-collapse: collapse; vertical-align: middle; margin-right: 5px; background-color: #e2e8f0; border: none;">
+                      <tr>
+                        <td style="width: ${d[kpi1.title]}%; background-color: ${kpi1.color}; border: none;"></td>
+                        <td style="width: ${100 - d[kpi1.title]}%; background-color: #e2e8f0; border: none;"></td>
+                      </tr>
+                    </table>
+                    <span style="font-size: 10px; font-weight: bold; color: ${kpi1.color}; vertical-align: middle; margin-right: 8px;">${d[kpi1.title]}%</span>
+                  </div>
+                  <!-- KPI 2 -->
+                  <div style="margin-bottom: 6px;">
+                    <span style="font-size: 10px; font-weight: bold; color: #334155; display: inline-block; width: 140px; text-align: right; vertical-align: middle; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">${kpi2.title}:</span>
+                    <table style="display: inline-table; width: 220px; height: 10px; border-collapse: collapse; vertical-align: middle; margin-right: 5px; background-color: #e2e8f0; border: none;">
+                      <tr>
+                        <td style="width: ${d[kpi2.title]}%; background-color: ${kpi2.color}; border: none;"></td>
+                        <td style="width: ${100 - d[kpi2.title]}%; background-color: #e2e8f0; border: none;"></td>
+                      </tr>
+                    </table>
+                    <span style="font-size: 10px; font-weight: bold; color: ${kpi2.color}; vertical-align: middle; margin-right: 8px;">${d[kpi2.title]}%</span>
+                  </div>
+                  <!-- KPI 3 -->
+                  <div>
+                    <span style="font-size: 10px; font-weight: bold; color: #334155; display: inline-block; width: 140px; text-align: right; vertical-align: middle; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">${kpi3.title}:</span>
+                    <table style="display: inline-table; width: 220px; height: 10px; border-collapse: collapse; vertical-align: middle; margin-right: 5px; background-color: #e2e8f0; border: none;">
+                      <tr>
+                        <td style="width: ${d[kpi3.title]}%; background-color: ${kpi3.color}; border: none;"></td>
+                        <td style="width: ${100 - d[kpi3.title]}%; background-color: #e2e8f0; border: none;"></td>
+                      </tr>
+                    </table>
+                    <span style="font-size: 10px; font-weight: bold; color: ${kpi3.color}; vertical-align: middle; margin-right: 8px;">${d[kpi3.title]}%</span>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    // Fetch the custom statistical analysis or use empty reminder
+    const analysisText = technicalAnalysis[program.id] || 
+      `لم يتم كتابة أو توليد تحليل إحصائي فني للبرنامج بعد. يمكنك كتابة التحليل أو توليده ذكياً باستخدام لوحة أدوات إعداد التقرير المتاحة بالجانب الأيمن ليظهر منسقاً بالتقرير الرسمي المصدر.`;
+
+    // Fetch evidence images
+    const activeImages = evidenceImages[program.id] || [
+      { id: "img1", name: "", url: "", caption: "الشاهد الأول: لقطة من الفعاليات المنفذة بمدرسة الجشة بمشاركة الطلاب" },
+      { id: "img2", name: "", url: "", caption: "الشاهد الثاني: نماذج من مستندات وأوراق العمل بملف إنجاز البرنامج" }
+    ];
+
+    const questionsList = (PROGRAM_QUESTIONS[program.id] || fallbackQuestions).slice(0, 10);
+    const analysisResult = analyzeQuestionnaire(program.id);
+    const qualitativeDetails = getQualitativeAnalysisForProgram(program.id, analysisResult.top3, analysisResult.bottom3);
+
+    let questionnaireHtml = `
+      <div style="margin-top: 30px; margin-bottom: 25px;">
+        <h3 style="color: #0f766e; font-size: 14px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 8px; font-weight: bold;">📋 دراسة قياس الأثر والرضا عن البرنامج (الاستبانة التقويمية):</h3>
+        <p style="margin: 0 0 15px 0; font-size: 11.5px; color: #475569; line-height: 1.6; text-align: justify; font-family: 'Tajawal', sans-serif;">
+          تم رصد وقياس الأثر الفعلي والتحقق من جودة المخرجات الإرشادية والسلوكية عبر تطبيق استبانة تقويمية (تتكون من 10 بنود لقياس الأثر) جرى توزيعها رقمياً على عينة عشوائية ممثلة بلغت <strong>50 مستجيباً</strong> (تشمل الطلاب المستهدفين، أولياء أمورهم، والهيئة التعليمية). وفيما يلي التقرير الإحصائي الدقيق للنتائج المسجلة بنسب مئوية وتوزيع عددي متوازن يوثق التفاعل والأثر:
+        </p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; text-align: center; font-family: 'Tajawal', sans-serif; border: 1.5px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <thead>
+            <tr style="background-color: #0d9488; color: white;">
+              <th style="padding: 10px; border: 1.5px solid #cbd5e1; width: 4%; font-weight: bold; font-size: 11px;">م.</th>
+              <th style="padding: 10px 15px; border: 1.5px solid #cbd5e1; text-align: right; width: 48%; font-weight: bold; font-size: 11.5px;">البند / السؤال المطروح لقياس الأثر</th>
+              <th style="padding: 10px; border: 1.5px solid #cbd5e1; width: 12%; font-weight: bold; font-size: 11px; text-align: center;">موافق بشدة</th>
+              <th style="padding: 10px; border: 1.5px solid #cbd5e1; width: 12%; font-weight: bold; font-size: 11px; text-align: center;">موافق</th>
+              <th style="padding: 10px; border: 1.5px solid #cbd5e1; width: 12%; font-weight: bold; font-size: 11px; text-align: center;">محايد</th>
+              <th style="padding: 10px; border: 1.5px solid #cbd5e1; width: 12%; font-weight: bold; font-size: 11px; text-align: center;">غير موافق</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    questionsList.forEach((q, idx) => {
+      const stats = getStableStatsForQuestion(program.id, idx);
+      questionnaireHtml += `
+        <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'}; page-break-inside: avoid; break-inside: avoid;">
+          <td style="padding: 10px 6px; border: 1.5px solid #cbd5e1; font-weight: bold; color: #475569; font-size: 11.5px; vertical-align: middle;">${idx + 1}</td>
+          <td style="padding: 10px 15px; border: 1.5px solid #cbd5e1; text-align: right; font-weight: 500; color: #1e293b; font-size: 11.5px; line-height: 1.4; vertical-align: middle;">${q}</td>
+          
+          <td style="padding: 8px 4px; border: 1.5px solid #cbd5e1; vertical-align: middle; text-align: center;">
+            <div style="display: inline-block; vertical-align: middle; text-align: center; font-family: 'Tajawal', sans-serif;">
+              <div style="font-size: 13px; font-weight: 800; color: #0d9488; margin-bottom: 3px;">
+                ${stats.stronglyAgreePct}%
+              </div>
+              <div style="font-size: 8px; font-weight: bold; color: #0f766e; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 2px 5px; display: inline-block; white-space: nowrap; direction: rtl; unicode-bidi: embed;">
+                التكرار: ${stats.stronglyAgree}
+              </div>
+            </div>
+          </td>
+          
+          <td style="padding: 8px 4px; border: 1.5px solid #cbd5e1; vertical-align: middle; text-align: center;">
+            <div style="display: inline-block; vertical-align: middle; text-align: center; font-family: 'Tajawal', sans-serif;">
+              <div style="font-size: 13px; font-weight: 800; color: #0ea5e9; margin-bottom: 3px;">
+                ${stats.agreePct}%
+              </div>
+              <div style="font-size: 8px; font-weight: bold; color: #0369a1; background-color: #f0f9ff; border: 1px solid #e0f2fe; border-radius: 4px; padding: 2px 5px; display: inline-block; white-space: nowrap; direction: rtl; unicode-bidi: embed;">
+                التكرار: ${stats.agree}
+              </div>
+            </div>
+          </td>
+          
+          <td style="padding: 8px 4px; border: 1.5px solid #cbd5e1; vertical-align: middle; text-align: center;">
+            <div style="display: inline-block; vertical-align: middle; text-align: center; font-family: 'Tajawal', sans-serif;">
+              <div style="font-size: 13px; font-weight: 800; color: #d97706; margin-bottom: 3px;">
+                ${stats.neutralPct}%
+              </div>
+              <div style="font-size: 8px; font-weight: bold; color: #854d0e; background-color: #fef9c3; border: 1px solid #fef08a; border-radius: 4px; padding: 2px 5px; display: inline-block; white-space: nowrap; direction: rtl; unicode-bidi: embed;">
+                التكرار: ${stats.neutral}
+              </div>
+            </div>
+          </td>
+          
+          <td style="padding: 8px 4px; border: 1.5px solid #cbd5e1; vertical-align: middle; text-align: center;">
+            <div style="display: inline-block; vertical-align: middle; text-align: center; font-family: 'Tajawal', sans-serif;">
+              <div style="font-size: 13px; font-weight: 800; color: #e11d48; margin-bottom: 3px;">
+                ${stats.disagreePct}%
+              </div>
+              <div style="font-size: 8px; font-weight: bold; color: #9f1239; background-color: #fff1f2; border: 1px solid #ffe4e6; border-radius: 4px; padding: 2px 5px; display: inline-block; white-space: nowrap; direction: rtl; unicode-bidi: embed;">
+                التكرار: ${stats.disagree}
+              </div>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+
+    questionnaireHtml += `
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Quantitative and Qualitative Analysis Block -->
+      <div style="margin-bottom: 35px; font-family: 'Tajawal', sans-serif;">
+        <table style="width: 100%; border-collapse: collapse; background-color: #fcfcfc; border: 1.5px solid #0d9488; border-radius: 12px; overflow: hidden; margin-top: 20px;">
+          <tr style="background-color: #0d9488; color: white; text-align: right;">
+            <td colspan="2" style="padding: 12px 15px; font-weight: bold; font-size: 14px;">
+              📊 تقرير التحليل الكمي والكيفي للاستبانة التقويمية (10 بنود)
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" style="padding: 15px; text-align: right; background-color: #f0fdfa;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="width: 70%; text-align: right; vertical-align: middle;">
+                    <h4 style="margin: 0; color: #0f766e; font-size: 13px; font-weight: bold;">مؤشر الرضا والقبول الإجمالي للبرنامج:</h4>
+                    <p style="margin: 4px 0 0 0; font-size: 11px; color: #334155;">يمثل متوسط استجابات عينة الدراسة (موافق بشدة + موافق) لكامل بنود الاستبانة العشرة.</p>
+                  </td>
+                  <td style="width: 30%; text-align: center; vertical-align: middle; border-right: 1px dashed #cbd5e1; padding-right: 15px;">
+                    <span style="font-size: 26px; font-weight: 900; color: #0d9488;">${analysisResult.overallApproval}%</span>
+                    <br>
+                    <span style="font-size: 11px; font-weight: bold; color: #0f766e; background-color: #ccfbf1; padding: 2px 8px; border-radius: 10px; display: inline-block; margin-top: 4px;">مستوى أثر ممتاز</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Quantitative Analysis Section -->
+          <tr>
+            <td style="width: 50%; padding: 15px; vertical-align: top; text-align: right; border-left: 1px solid #e2e8f0;">
+              <h4 style="margin: 0 0 10px 0; color: #0d9488; font-size: 12.5px; font-weight: bold; border-bottom: 2px solid #ccfbf1; padding-bottom: 4px;">📈 أولاً: التحليل الإحصائي الكمي (Quantitative):</h4>
+              
+              <p style="margin: 0 0 12px 0; font-size: 11px; color: #475569; line-height: 1.6;">
+                <strong>توزيع متوسطات الاستجابة الإجمالية لخيارات الرضا:</strong>
+                <br>
+                • موافق بشدة (متوسط): <span style="color: #0f766e; font-weight: bold;">${analysisResult.avgStronglyAgree}%</span>
+                <br>
+                • موافق (متوسط): <span style="color: #0284c7; font-weight: bold;">${analysisResult.avgAgree}%</span>
+                <br>
+                • محايد (متوسط): <span style="color: #d97706; font-weight: bold;">${analysisResult.avgNeutral}%</span>
+                <br>
+                • غير موافق (متوسط): <span style="color: #e11d48; font-weight: bold;">${analysisResult.avgDisagree}%</span>
+              </p>
+
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; margin-bottom: 10px;">
+                <h5 style="margin: 0 0 6px 0; color: #0f766e; font-size: 11.5px; font-weight: bold;">⭐ نقاط التميز والقوة الأعلى تقييماً كمياً:</h5>
+                <ul style="margin: 0; padding-right: 15px; font-size: 10.5px; color: #334155; line-height: 1.5;">
+                  ${analysisResult.top3.map((item, idx) => `
+                    <li style="margin-bottom: 4px;">
+                      <strong>بند ${item.index}:</strong> ${item.question} <span style="color: #0d9488; font-weight: bold;">(${item.approvalPct}%)</span>
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+
+              <div style="background-color: #fff1f2; border: 1px solid #ffe4e6; border-radius: 6px; padding: 10px;">
+                <h5 style="margin: 0 0 6px 0; color: #be123c; font-size: 11.5px; font-weight: bold;">🎯 فرص التطوير والتحسين المقترحة كمياً:</h5>
+                <ul style="margin: 0; padding-right: 15px; font-size: 10.5px; color: #334155; line-height: 1.5;">
+                  ${analysisResult.bottom3.map((item, idx) => `
+                    <li style="margin-bottom: 4px;">
+                      <strong>بند ${item.index}:</strong> ${item.question} <span style="color: #b91c1c; font-weight: bold;">(${item.approvalPct}%)</span>
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+            </td>
+
+            <!-- Qualitative Analysis Section -->
+            <td style="width: 50%; padding: 15px; vertical-align: top; text-align: right;">
+              <h4 style="margin: 0 0 10px 0; color: #0284c7; font-size: 12.5px; font-weight: bold; border-bottom: 2px solid #e0f2fe; padding-bottom: 4px;">📝 ثانياً: التحليل التفسيري الكيفي (Qualitative):</h4>
+              
+              <div style="font-size: 11px; color: #334155; line-height: 1.6;">
+                <p style="margin: 0 0 8px 0;">
+                  ${qualitativeDetails.dimension1}
+                </p>
+                <p style="margin: 0 0 8px 0;">
+                  ${qualitativeDetails.dimension2}
+                </p>
+                <p style="margin: 0 0 8px 0;">
+                  ${qualitativeDetails.dimension3}
+                </p>
+                <div style="background-color: #f0fdf4; border: 1px solid #dcfce7; border-radius: 6px; padding: 10px; margin-top: 10px; color: #166534; font-size: 10.5px; line-height: 1.5;">
+                  <strong>💡 التوصية الكيفية الإجمالية لدعم الأثر:</strong>
+                  <br>
+                  ${qualitativeDetails.conclusion}
+                </div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    return `
+      <div class="technical-report-container" style="font-family: 'Tajawal', sans-serif; text-align: right; direction: rtl; padding: 25px; background: white; color: #1e293b; max-width: 800px; margin: auto;">
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+          .technical-report-container,
+          .technical-report-container * {
+            font-family: 'Tajawal', 'Cairo', sans-serif !important;
+          }
+          #case-study-print-target img,
+          .case-study-report-container img,
+          .technical-report-container img {
+            max-width: 150px !important;
+            max-height: 120px !important;
+            width: auto !important;
+            height: auto !important;
+            object-fit: contain !important;
+            display: block !important;
+            margin: 0 auto !important;
+          }
+        </style>
+        <!-- Branded Header using Word-compatible Table -->
+        <table style="width: 100%; border-collapse: collapse; border-bottom: 3px double #0d9488; padding-bottom: 15px; margin-bottom: 25px;">
+          <tr>
+            <td style="width: 33%; text-align: right; font-size: 11px; color: #1e1b4b; line-height: 1.5; vertical-align: middle;">
+              <strong>المملكة العربية السعودية</strong><br>
+              <strong>وزارة التعليم</strong><br>
+              إدارة التعليم بمحافظة الأحساء<br>
+              مدرسة الجشة المتوسطة
+            </td>
+            <td style="width: 34%; text-align: center; vertical-align: middle;">
+              <h1 style="margin: 0; color: #0d9488; font-size: 18px; font-weight: 800;">تقرير إنجاز وتفعيل البرامج الإرشادية</h1>
+              <p style="margin: 5px 0 0 0; font-size: 12px; color: #64748b; font-weight: 500;">برامج التوجيه الطلابي</p>
+            </td>
+            <td style="width: 33%; text-align: left; font-size: 11px; color: #64748b; line-height: 1.5; vertical-align: middle;">
+              التاريخ: ${new Date().toLocaleDateString("ar-SA")}<br>
+              العام الدراسي: 1447هـ
+            </td>
+          </tr>
+        </table>
+
+        <div style="background-color: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 12px; padding: 15px; margin-bottom: 25px;">
+          <h2 style="color: #0f766e; margin: 0 0 8px 0; font-size: 18px; font-weight: 700;">اسم البرنامج: ${program.title}</h2>
+          <p style="margin: 0; font-size: 13px; color: #115e59; font-weight: 500;"><strong>تصنيف البرنامج:</strong> ${program.category} | <strong>طبيعة البرنامج:</strong> ${program.nature} | <strong>التوقيت:</strong> ${program.duration}</p>
+        </div>
+
+        <div style="margin-bottom: 25px; page-break-inside: avoid; break-inside: avoid;">
+          <h3 style="color: #0f766e; font-size: 15px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 10px;">رسالة وهدف البرنامج الأساسي:</h3>
+          <p style="margin: 0; line-height: 1.6; font-size: 14px; text-align: justify; color: #334155;">${program.mission}</p>
+        </div>
+
+        <div style="margin-bottom: 25px; page-break-inside: avoid; break-inside: avoid;">
+          <h3 style="color: #0f766e; font-size: 15px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 12px;">مؤشرات الإنجاز المسجلة:</h3>
+          
+          <!-- Word-compatible table layout for KPIs -->
+          <table style="width: 100%; border-collapse: separate; border-spacing: 12px; margin-bottom: 15px;">
+            <tr>
+              <td style="width: 33.3%; background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; text-align: center; vertical-align: top;">
+                <h4 style="margin: 0; font-size: 12.5px; color: #475569; font-weight: bold;">${kpi1.title}</h4>
+                <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: ${kpi1.color};">${kpi1.target}%</p>
+                <p style="margin: 3px 0 0 0; font-size: 10.5px; color: #64748b;">${kpi1.desc}</p>
+              </td>
+              <td style="width: 33.3%; background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; text-align: center; vertical-align: top;">
+                <h4 style="margin: 0; font-size: 12.5px; color: #475569; font-weight: bold;">${kpi2.title}</h4>
+                <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: ${kpi2.color};">${kpi2.target}%</p>
+                <p style="margin: 3px 0 0 0; font-size: 10.5px; color: #64748b;">${kpi2.desc}</p>
+              </td>
+              <td style="width: 33.3%; background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; text-align: center; vertical-align: top;">
+                <h4 style="margin: 0; font-size: 12.5px; color: #475569; font-weight: bold;">${kpi3.title}</h4>
+                <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: ${kpi3.color};">${kpi3.target}%</p>
+                <p style="margin: 3px 0 0 0; font-size: 10.5px; color: #64748b;">${kpi3.desc}</p>
+              </td>
+            </tr>
+          </table>
+
+          <!-- Word-compatible Activation Banner table -->
+          <table style="width: 100%; border-collapse: collapse; background-color: #f0f9ff; border: 1px solid #e0f2fe; border-radius: 8px; margin-top: 15px; margin-bottom: 15px;">
+            <tr>
+              <td style="padding: 12px; text-align: right; vertical-align: middle;">
+                <h4 style="margin: 0; font-size: 13px; color: #0369a1; font-weight: bold;">مقياس تفعيل وحالة مؤشر البرنامج:</h4>
+                <p style="margin: 3px 0 0 0; font-size: 11px; color: #0369a1;">${program.kpis.metric.desc}</p>
+              </td>
+              <td style="padding: 12px; text-align: left; vertical-align: middle; font-size: 22px; font-weight: 900; color: #0284c7; width: 100px;">
+                ${getMetricValue()}
+              </td>
+            </tr>
+          </table>
+          
+          <!-- Drawing SVG Chart -->
+          ${isWord ? wordChartHtml : staticChartSvg}
+        </div>
+
+        <!-- KPI Numerical Table for Statistics -->
+        <div style="margin-bottom: 25px; page-break-inside: avoid;">
+          <h3 style="color: #0f766e; font-size: 15px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 12px;">📊 جدول الإحصاءات والنسب الرقمية المرصودة (${intervalData.label}):</h3>
+          <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 11px; font-family: 'Tajawal', sans-serif;">
+            <thead>
+              <tr style="background-color: #0f766e; color: white;">
+                <th style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${intervalData.tableHeader}</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${kpi1.title}</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${kpi2.title}</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${kpi3.title}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${monthlyData.map((d, i) => `
+                <tr style="background-color: ${i % 2 === 0 ? '#f8fafc' : '#ffffff'};">
+                  <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: bold; color: #334155;">${d.name}</td>
+                  <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: bold; color: ${kpi1.color};">${d[kpi1.title]}%</td>
+                  <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: bold; color: ${kpi2.color};">${d[kpi2.title]}%</td>
+                  <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: bold; color: ${kpi3.color};">${d[kpi3.title]}%</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Smart / Custom Data Analysis Section -->
+        <div style="margin-bottom: 25px; page-break-inside: avoid;">
+          <h3 style="color: #0f766e; font-size: 15px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 12px;">📝 التحليل الإحصائي والقراءة الفنية لمؤشرات الأداء:</h3>
+          <div style="background-color: #fcfcfc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; font-size: 12.5px; line-height: 1.6; text-align: justify; color: #334155; font-family: 'Tajawal', sans-serif;">${formatAnalysisTextToHtml(analysisText)}</div>
+        </div>
+
+        <div style="margin-bottom: 25px; page-break-inside: avoid; break-inside: avoid;">
+          <h3 style="color: #0f766e; font-size: 15px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 12px;">الإجراءات والمسار الزمني المنجز:</h3>
+          ${program.timeline.map(t => `
+            <div style="margin-bottom: 12px; padding: 8px 12px; background: #fafafa; border-radius: 6px; page-break-inside: avoid; break-inside: avoid;">
+              <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 12px; color: #475569; margin-bottom: 5px;">
+                <span>المرحلة: ${t.title}</span>
+                <span>التوقيت: ${t.timing}</span>
+              </div>
+              <ul style="margin: 0; padding-right: 20px; font-size: 12px; color: #334155;">
+                ${t.procedures.map(p => `<li style="margin-bottom: 3px; page-break-inside: avoid; break-inside: avoid;">${p}</li>`).join('')}
+              </ul>
+            </div>
+          `).join('')}
+        </div>
+
+        <!-- Evidence Showcase Grid -->
+        <div style="margin-bottom: 30px; page-break-inside: avoid;">
+          <h3 style="color: #0f766e; font-size: 15px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 14px; font-family: 'Tajawal', Arial, sans-serif;">🖼️ شواهد التنفيذ والتوثيق الفوتوغرافي (شواهد إنجاز العمل):</h3>
+          <table style="width: 100%; border-collapse: collapse; margin: 0 auto; border: none;">
+            <tr>
+              ${activeImages.slice(0, 2).map((img) => {
+                if (img.url) {
+                  return `
+                    <td align="center" style="width: 50%; padding: 8px; vertical-align: top; border: none;">
+                      <table width="200" style="width: 200px; max-width: 200px; border: 1.5px solid #cbd5e1; background-color: #f8fafc; border-collapse: collapse; margin: 0 auto; text-align: center;">
+                        <tr>
+                          <td align="center" style="padding: 8px; background-color: #ffffff; height: 130px; vertical-align: middle; text-align: center; border: none;">
+                            <img src="${img.url}" width="150" height="110" style="width: 150px; height: 110px; max-width: 150px; max-height: 110px; display: block; margin: 0 auto; border: 1px solid #e2e8f0; object-fit: contain;" alt="${img.caption || 'شاهد توثيقي'}" referrerpolicy="no-referrer" />
+                          </td>
+                        </tr>
+                        <tr>
+                          <td align="center" style="padding: 6px 8px; background-color: #f1f5f9; border-top: 1px solid #e2e8f0; font-family: 'Tajawal', Arial, sans-serif; font-size: 11px; font-weight: bold; color: #334155; text-align: center; line-height: 1.4;">
+                            ${img.caption || 'شاهد توثيقي معتمد'}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  `;
+                } else {
+                  return `
+                    <td align="center" style="width: 50%; padding: 8px; vertical-align: top; border: none;">
+                      <table width="200" style="width: 200px; max-width: 200px; height: 160px; border: 2px dashed #cbd5e1; background-color: #f8fafc; border-collapse: collapse; margin: 0 auto; text-align: center;">
+                        <tr>
+                          <td align="center" style="padding: 15px 10px; vertical-align: middle; text-align: center; border: none;">
+                            <div style="font-size: 22px; margin-bottom: 6px; color: #94a3b8;">📷</div>
+                            <p style="margin: 0 0 4px 0; font-size: 11px; color: #64748b; font-weight: bold; font-family: 'Tajawal', Arial, sans-serif;">[حيز مخصص لشاهد فوتوغرافي]</p>
+                            <p style="margin: 0; font-size: 9.5px; color: #94a3b8; font-style: italic; font-family: 'Tajawal', Arial, sans-serif;">${img.caption || 'توثيق ميداني'}</p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  `;
+                }
+              }).join('')}
+            </tr>
+            ${activeImages.length > 2 ? `
+              <tr>
+                ${activeImages.slice(2, 4).map((img) => {
+                  if (img.url) {
+                    return `
+                      <td align="center" style="width: 50%; padding: 8px; vertical-align: top; border: none;">
+                        <table width="200" style="width: 200px; max-width: 200px; border: 1.5px solid #cbd5e1; background-color: #f8fafc; border-collapse: collapse; margin: 0 auto; text-align: center;">
+                          <tr>
+                            <td align="center" style="padding: 8px; background-color: #ffffff; height: 130px; vertical-align: middle; text-align: center; border: none;">
+                              <img src="${img.url}" width="150" height="110" style="width: 150px; height: 110px; max-width: 150px; max-height: 110px; display: block; margin: 0 auto; border: 1px solid #e2e8f0; object-fit: contain;" alt="${img.caption || 'شاهد توثيقي'}" referrerpolicy="no-referrer" />
+                            </td>
+                          </tr>
+                          <tr>
+                            <td align="center" style="padding: 6px 8px; background-color: #f1f5f9; border-top: 1px solid #e2e8f0; font-family: 'Tajawal', Arial, sans-serif; font-size: 11px; font-weight: bold; color: #334155; text-align: center; line-height: 1.4;">
+                              ${img.caption || 'شاهد توثيقي معتمد'}
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    `;
+                  } else {
+                    return `
+                      <td align="center" style="width: 50%; padding: 8px; vertical-align: top; border: none;">
+                        <table width="200" style="width: 200px; max-width: 200px; height: 160px; border: 2px dashed #cbd5e1; background-color: #f8fafc; border-collapse: collapse; margin: 0 auto; text-align: center;">
+                          <tr>
+                            <td align="center" style="padding: 15px 10px; vertical-align: middle; text-align: center; border: none;">
+                              <div style="font-size: 22px; margin-bottom: 6px; color: #94a3b8;">📷</div>
+                              <p style="margin: 0 0 4px 0; font-size: 11px; color: #64748b; font-weight: bold; font-family: 'Tajawal', Arial, sans-serif;">[حيز مخصص لشاهد فوتوغرافي]</p>
+                              <p style="margin: 0; font-size: 9.5px; color: #94a3b8; font-style: italic; font-family: 'Tajawal', Arial, sans-serif;">${img.caption || 'توثيق ميداني'}</p>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    `;
+                  }
+                }).join('')}
+              </tr>
+            ` : ''}
+          </table>
+        </div>
+
+        ${questionnaireHtml}
+
+        <!-- Recommendations & Challenges table layout -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 40px; page-break-inside: avoid; break-inside: avoid;">
+          <tr>
+            <td style="width: 50%; padding-left: 15px; vertical-align: top; text-align: right;">
+              <h3 style="color: #0f766e; font-size: 14px; border-right: 3px solid #0d9488; padding-right: 6px; margin-bottom: 8px; font-weight: bold;">التوصيات الإرشادية:</h3>
+              <ul style="margin: 0; padding-right: 20px; font-size: 12px; color: #475569; line-height: 1.5;">
+                ${program.recs.map(r => `<li style="margin-bottom: 4px;"><strong>${r.title}:</strong> ${r.desc}</li>`).join('')}
+              </ul>
+            </td>
+            <td style="width: 50%; padding-right: 15px; vertical-align: top; text-align: right; border-right: 1px dashed #cbd5e1;">
+              <h3 style="color: #0f766e; font-size: 14px; border-right: 3px solid #0d9488; padding-right: 6px; margin-bottom: 8px; font-weight: bold;">التحديات والحلول المطبقة:</h3>
+              <ul style="margin: 0; padding-right: 20px; font-size: 12px; color: #475569; line-height: 1.5;">
+                ${program.challenges.map(c => `<li style="margin-bottom: 4px;"><strong>${c.title}:</strong> ${c.desc}</li>`).join('')}
+              </ul>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Signatures table layout -->
+        <table style="width: 100%; border-collapse: collapse; border-top: 1px dashed #ccc; padding-top: 30px; margin-top: 30px; text-align: center; page-break-inside: avoid; break-inside: avoid;">
+          <tr>
+            <td style="width: 50%; text-align: center; padding-top: 25px; vertical-align: top;">
+              <p style="margin: 0; font-size: 13px; font-weight: bold; color: #475569;">الموجه الطلابي بمدرسة الجشة</p>
+              <p style="margin: 10px 0 0 0; font-size: 14px; color: #1e293b; font-weight: bold;">عبدالهادي بن محمد المحسن</p>
+              <p style="margin: 15px auto 0 auto; width: 120px; border-bottom: 1px dotted #ccc; height: 10px;"></p>
+            </td>
+            <td style="width: 50%; text-align: center; padding-top: 25px; vertical-align: top;">
+              <p style="margin: 0; font-size: 13px; font-weight: bold; color: #475569;">مدير المدرسة</p>
+              <p style="margin: 10px 0 0 0; font-size: 14px; color: #1e293b; font-weight: bold;">أحمد بن ناصر الدوسري</p>
+              <p style="margin: 15px auto 0 auto; width: 120px; border-bottom: 1px dotted #ccc; height: 10px;"></p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+  };
+
+  // Standalone KPI Chart High-Quality PDF Printing
+  const handlePrintKpiChart = () => {
+    const width = 800;
+    const height = 350;
+    const padding = 45;
+    const chartWidth = width - padding * 2;
+    const chartHeight = height - padding * 2;
+    const monthsShort = ["سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر", "يناير", "فبراير", "مارس", "أبريل", "مايو"];
+
+    const getLinePoints = (key: string) => {
+      return monthlyData.map((d, i) => {
+        const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+        const y = padding + chartHeight - (d[key] / 100 * chartHeight);
+        return `${x},${y}`;
+      }).join(' ');
+    };
+
+    const kpi1 = program.kpis.chart1;
+    const kpi2 = program.kpis.chart2;
+    const kpi3 = program.kpis.chart3;
+
+    const points1 = getLinePoints(kpi1.title);
+    const points2 = getLinePoints(kpi2.title);
+    const points3 = getLinePoints(kpi3.title);
+
+    const chartPageHtml = `
+      <div style="font-family: 'Tajawal', sans-serif; text-align: right; direction: rtl; padding: 30px; background: white; color: #1e293b; max-width: 900px; margin: auto;">
+        <!-- Ministry Header (الكليشة الرسمية) -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border-bottom: 3px double #0d9488; padding-bottom: 12px;">
+          <tr>
+            <td style="width: 35%; text-align: right; font-size: 12px; color: #1e1b4b; line-height: 1.5; vertical-align: middle;">
+              <strong>المملكة العربية السعودية</strong><br>
+              <strong>وزارة التعليم</strong><br>
+              إدارة التعليم بمحافظة الأحساء<br>
+              مدرسة الجشة المتوسطة
+            </td>
+            <td style="width: 30%; text-align: center; vertical-align: middle;">
+              <h1 style="margin: 0; color: #0d9488; font-size: 15px; font-weight: 800;">تقرير الأداء البياني لمؤشرات الأداء (KPIs)</h1>
+              <p style="margin: 3px 0 0 0; font-size: 10px; color: #115e59; font-weight: bold; background: #f0fdfa; border: 1px solid #ccfbf1; display: inline-block; padding: 1px 8px; border-radius: 10px;">وثيقة تتبع الأثر الإرشادية الفعالة</p>
+            </td>
+            <td style="width: 35%; text-align: left; font-size: 11px; color: #64748b; line-height: 1.6; vertical-align: middle;">
+              التاريخ: ${new Date().toLocaleDateString("ar-SA")}<br>
+              العام الدراسي:
+            </td>
+          </tr>
+        </table>
+
+        <!-- Description Box -->
+        <div style="background-color: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 12px; padding: 15px; margin-bottom: 25px;">
+          <h2 style="color: #0f766e; margin: 0 0 8px 0; font-size: 15px; font-weight: 700;">تحليل تتبع المؤشرات الإحصائية لبرنامج: ${program.title}</h2>
+          <p style="margin: 0; font-size: 12.5px; color: #115e59; line-height: 1.6; text-align: justify;">
+            يوضح هذا الرسم البياني عالي الدقة التدرج الفعلي لمؤشرات التحقق الثلاثة المعتمدة للبرنامج بدءاً من انطلاقته ومروراً بالشهور الدراسية للعام الدراسي بمدرسة الجشة المتوسطة، لقياس ورصد أثر التدخلات الإرشادية والتوجيهية السلوكية المطبقة على الطلاب المستهدفين ومتابعة وتيرة التحسن.
+          </p>
+        </div>
+
+        <!-- Large SVG Chart (High Quality) -->
+        <div style="margin: 30px 0; text-align: center;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" style="width: 100%; height: auto; background: #fafdfd; border: 1.5px solid #cbd5e1; border-radius: 12px; padding: 10px; direction: ltr;">
+            <!-- Grid Lines -->
+            <line x1="${padding}" y1="${padding}" x2="${width - padding}" y2="${padding}" stroke="#f1f5f9" stroke-width="1" />
+            <line x1="${padding}" y1="${padding + chartHeight / 4}" x2="${width - padding}" y2="${padding + chartHeight / 4}" stroke="#f1f5f9" stroke-width="1" />
+            <line x1="${padding}" y1="${padding + chartHeight / 2}" x2="${width - padding}" y2="${padding + chartHeight / 2}" stroke="#f1f5f9" stroke-width="1" />
+            <line x1="${padding}" y1="${padding + (3 * chartHeight) / 4}" x2="${width - padding}" y2="${padding + (3 * chartHeight) / 4}" stroke="#f1f5f9" stroke-width="1" />
+            <line x1="${padding}" y1="${padding + chartHeight}" x2="${width - padding}" y2="${padding + chartHeight}" stroke="#94a3b8" stroke-width="1.5" />
+
+            <!-- Y Axis Labels -->
+            <text x="${padding - 10}" y="${padding + 4}" font-size="9" fill="#64748b" text-anchor="end" font-weight="bold">100%</text>
+            <text x="${padding - 10}" y="${padding + chartHeight / 4 + 4}" font-size="9" fill="#64748b" text-anchor="end" font-weight="bold">75%</text>
+            <text x="${padding - 10}" y="${padding + chartHeight / 2 + 4}" font-size="9" fill="#64748b" text-anchor="end" font-weight="bold">50%</text>
+            <text x="${padding - 10}" y="${padding + (3 * chartHeight) / 4 + 4}" font-size="9" fill="#64748b" text-anchor="end" font-weight="bold">25%</text>
+            <text x="${padding - 10}" y="${padding + chartHeight + 4}" font-size="9" fill="#64748b" text-anchor="end" font-weight="bold">0%</text>
+
+            <!-- X Axis Labels (Months) -->
+            ${monthsShort.map((m, i) => {
+              const x = padding + (i * (chartWidth / (monthsShort.length - 1)));
+              return `<text x="${x}" y="${padding + chartHeight + 18}" font-size="9" fill="#475569" text-anchor="middle" font-weight="bold">${m}</text>`;
+            }).join('')}
+
+            <!-- Data Lines (Polylines) -->
+            <polyline fill="none" stroke="${kpi1.color}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" points="${points1}" />
+            <polyline fill="none" stroke="${kpi2.color}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" points="${points2}" />
+            <polyline fill="none" stroke="${kpi3.color}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" points="${points3}" />
+
+            <!-- Circles / Markers with Values labels -->
+            ${monthlyData.map((d, i) => {
+              const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+              const y = padding + chartHeight - (d[kpi1.title] / 100 * chartHeight);
+              return `
+                <circle cx="${x}" cy="${y}" r="4.5" fill="#ffffff" stroke="${kpi1.color}" stroke-width="2.2" />
+                <text x="${x}" y="${y - 8}" font-size="8.5" fill="${kpi1.color}" text-anchor="middle" font-weight="bold">${d[kpi1.title]}%</text>
+              `;
+            }).join('')}
+
+            ${monthlyData.map((d, i) => {
+              const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+              const y = padding + chartHeight - (d[kpi2.title] / 100 * chartHeight);
+              return `
+                <circle cx="${x}" cy="${y}" r="4.5" fill="#ffffff" stroke="${kpi2.color}" stroke-width="2.2" />
+                <text x="${x}" y="${y + 11}" font-size="8.5" fill="${kpi2.color}" text-anchor="middle" font-weight="bold">${d[kpi2.title]}%</text>
+              `;
+            }).join('')}
+
+            ${monthlyData.map((d, i) => {
+              const x = padding + (i * (chartWidth / (monthlyData.length - 1)));
+              const y = padding + chartHeight - (d[kpi3.title] / 100 * chartHeight);
+              return `
+                <circle cx="${x}" cy="${y}" r="4.5" fill="#ffffff" stroke="${kpi3.color}" stroke-width="2.2" />
+                <text x="${x}" y="${y - 8}" font-size="8.5" fill="${kpi3.color}" text-anchor="middle" font-weight="bold">${d[kpi3.title]}%</text>
+              `;
+            }).join('')}
+
+            <!-- Legend inside Chart -->
+            <g transform="translate(${width / 2 - 190}, 16)">
+              <rect x="-10" y="-8" width="380" height="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" rx="4" />
+              
+              <circle cx="10" cy="2" r="4.5" fill="${kpi1.color}" />
+              <text x="20" y="5" font-size="9" fill="#1e293b" font-weight="bold">${kpi1.title}</text>
+
+              <circle cx="130" cy="2" r="4.5" fill="${kpi2.color}" />
+              <text x="140" y="5" font-size="9" fill="#1e293b" font-weight="bold">${kpi2.title}</text>
+
+              <circle cx="250" cy="2" r="4.5" fill="${kpi3.color}" />
+              <text x="260" y="5" font-size="9" fill="#1e293b" font-weight="bold">${kpi3.title}</text>
+            </g>
+          </svg>
+        </div>
+
+        <!-- Values Data Table -->
+        <div style="margin-top: 25px;">
+          <h3 style="color: #0f766e; font-size: 13.5px; border-right: 4px solid #0d9488; padding-right: 8px; margin-bottom: 12px; font-weight: bold;">📊 جدول البيانات الإحصائية المعتمد:</h3>
+          <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 11px; font-family: 'Tajawal', sans-serif;">
+            <thead>
+              <tr style="background-color: #0f766e; color: white;">
+                <th style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; width: 28%;">مؤشر الأداء الدراسي للعام الدراسي الحالي</th>
+                ${monthsShort.map(m => `<th style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${m}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #1e293b; background: #f8fafc;">${kpi1.title}</td>
+                ${monthlyData.map(d => `<td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold; color: ${kpi1.color};">${d[kpi1.title]}%</td>`).join('')}
+              </tr>
+              <tr>
+                <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #1e293b; background: #f8fafc;">${kpi2.title}</td>
+                ${monthlyData.map(d => `<td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold; color: ${kpi2.color};">${d[kpi2.title]}%</td>`).join('')}
+              </tr>
+              <tr>
+                <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #1e293b; background: #f8fafc;">${kpi3.title}</td>
+                ${monthlyData.map(d => `<td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold; color: ${kpi3.color};">${d[kpi3.title]}%</td>`).join('')}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Signature Section -->
+        <div style="margin-top: 40px; border-top: 2px dashed #0d9488; padding-top: 20px; display: flex; justify-content: space-between; align-items: flex-start;">
+          <div style="text-align: center; width: 45%;">
+            <p style="margin: 0; font-size: 12.5px; font-weight: bold; color: #0f766e;">الموجه الطلابي المعد</p>
+            <p style="margin: 5px 0; font-size: 13.5px; font-weight: bold; color: #1e293b;">عبدالهادي بن محمد المحسن</p>
+          </div>
+          <div style="text-align: center; width: 45%;">
+            <p style="margin: 0; font-size: 12.5px; font-weight: bold; color: #475569;">مدير المدرسة</p>
+            <p style="margin: 5px 0; font-size: 13.5px; font-weight: bold; color: #1e293b;">أحمد بن ناصر الدوسري</p>
+            <div style="margin-top: 10px; display: inline-flex; width: 60px; height: 60px; border: 2px dotted #cbd5e1; border-radius: 50%; align-items: center; justify-content: center; font-size: 10px; color: #94a3b8;">الختم</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>تصدير الأداء البياني - ${program.title}</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+            <style>
+              body { font-family: 'Tajawal', sans-serif; background-color: white; margin: 0; padding: 20px; }
+              @media print {
+                body { margin: 10mm; }
+                p, li, tr, td, table, blockquote, pre {
+                  page-break-inside: avoid !important;
+                  break-inside: avoid !important;
+                }
+                h1, h2, h3, h4, h5, h6 {
+                  page-break-after: avoid !important;
+                  break-after: avoid !important;
+                }
+              }
+            </style>
+          </head>
+          <body dir="rtl">
+            ${chartPageHtml}
+            <script>
+              window.onload = function() {
+                window.print();
+                setTimeout(() => { window.close(); }, 500);
+              }
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
+  // Beautiful Case Study Report HTML Compiler (Official Branded "Klesha" layout with عبدالهادي بن محمد المحسن)
+  const compileCaseStudyReportHtml = (markdown: string) => {
+    if (!markdown) return "";
+    
+    const lines = markdown.split("\n");
+    let contentHtml = "";
+    
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      
+      // Main Heading in markdown
+      if (trimmed.startsWith("# ")) {
+        contentHtml += `
+          <h1 style="color: #4f46e5; text-align: center; font-size: 18px; font-weight: 900; margin-top: 10px; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 3px double #ddd6fe; text-shadow: 0 1px 1px rgba(0,0,0,0.02);">
+            ${trimmed.slice(2)}
+          </h1>
+        `;
+      }
+      // Section Heading (## )
+      else if (trimmed.startsWith("## ")) {
+        const title = trimmed.slice(3);
+        contentHtml += `
+          <h2 style="color: #1e1b4b; background-color: #f5f3ff; border-right: 5px solid #4f46e5; padding: 8px 12px; margin-top: 25px; margin-bottom: 15px; font-size: 14.5px; font-weight: 800; border-radius: 0 8px 8px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.02); display: flex; align-items: center; page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; break-after: avoid;">
+            <span style="display: inline-block; width: 6px; height: 6px; background-color: #4f46e5; border-radius: 50%; margin-left: 8px;"></span>
+            ${title}
+          </h2>
+        `;
+      }
+      // Sub-heading (### )
+      else if (trimmed.startsWith("### ")) {
+        const subtitle = trimmed.slice(4);
+        contentHtml += `
+          <h3 style="color: #6b21a8; font-size: 13px; font-weight: 700; margin-top: 15px; margin-bottom: 10px; border-bottom: 1.5px dashed #f3e8ff; padding-bottom: 4px; padding-right: 5px; page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; break-after: avoid;">
+            ✦ ${subtitle}
+          </h3>
+        `;
+      }
+      // List items
+      else if (trimmed.startsWith("* ") || trimmed.startsWith("- ")) {
+        let text = trimmed.slice(2);
+        text = text.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #4c1d95; font-weight: bold;">$1</strong>');
+        contentHtml += `
+          <div style="display: flex; align-items: flex-start; margin-right: 15px; margin-top: 6px; margin-bottom: 6px; page-break-inside: avoid; break-inside: avoid;">
+            <span style="width: 5px; height: 5px; background-color: #8b5cf6; border-radius: 50%; margin-top: 7px; margin-left: 8px; flex-shrink: 0;"></span>
+            <span style="font-size: 12.5px; line-height: 1.6; color: #334155;">${text}</span>
+          </div>
+        `;
+      }
+      // Numbered items
+      else if (/^\d+\s*\.\s*/.test(trimmed)) {
+        const num = trimmed.match(/^\d+/)?.[0];
+        let text = trimmed.replace(/^\d+\s*\.\s*/, "");
+        text = text.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #4c1d95; font-weight: bold;">$1</strong>');
+        contentHtml += `
+          <div style="display: flex; align-items: flex-start; margin-right: 10px; margin-top: 8px; margin-bottom: 8px; page-break-inside: avoid; break-inside: avoid;">
+            <span style="background-color: #f5f3ff; color: #4f46e5; font-weight: bold; padding: 2px 7px; border-radius: 5px; font-size: 10.5px; margin-left: 8px; border: 1px solid #ddd6fe; flex-shrink: 0;">${num}</span>
+            <span style="font-size: 12.5px; line-height: 1.6; color: #334155;">${text}</span>
+          </div>
+        `;
+      }
+      // Normal text
+      else {
+        let text = trimmed;
+        text = text.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #4c1d95; font-weight: bold;">$1</strong>');
+        contentHtml += `
+          <p style="font-size: 12.5px; line-height: 1.6; color: #475569; margin: 6px 0; text-align: justify; text-indent: 10px; page-break-inside: avoid; break-inside: avoid;">
+            ${text}
+          </p>
+        `;
+      }
+    });
+
+    return `
+      <div class="case-study-report-container" style="font-family: 'Tajawal', sans-serif; text-align: right; direction: rtl; padding: 30px; background: white; color: #1e293b; max-width: 800px; margin: auto;">
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+          .case-study-report-container,
+          .case-study-report-container * {
+            font-family: 'Tajawal', 'Cairo', sans-serif !important;
+          }
+          #case-study-print-target img,
+          .case-study-report-container img {
+            max-width: 150px !important;
+            max-height: 120px !important;
+            width: auto !important;
+            height: auto !important;
+            object-fit: contain !important;
+            display: block !important;
+            margin: 0 auto !important;
+          }
+        </style>
+        <!-- Ministry Branded Header (كليشة مدرسة الجشة) -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 22px; border-bottom: 3.5px double #4f46e5; padding-bottom: 12px;">
+          <tr>
+            <td style="width: 35%; text-align: right; font-size: 11.5px; color: #1e1b4b; line-height: 1.6; vertical-align: middle;">
+              <strong style="font-size: 12.5px; color: #4f46e5;">المملكة العربية السعودية</strong><br>
+              <strong>وزارة التعليم</strong><br>
+              إدارة التعليم بمحافظة الأحساء<br>
+              <span style="color: #5b21b6; font-weight: bold;">مدرسة الجشة المتوسطة</span>
+            </td>
+            <td style="width: 30%; text-align: center; vertical-align: middle;">
+              <h1 style="margin: 0; color: #1e1b4b; font-size: 15.5px; font-weight: 900;">خطة التدخل والدعم الإرشادي</h1>
+              <p style="margin: 4px 0 0 0; font-size: 10px; color: #6b21a8; font-weight: bold; background: #faf5ff; border: 1px solid #f3e8ff; display: inline-block; padding: 1px 9px; border-radius: 12px;">تقرير دراسة حالة فردية معتمد</p>
+            </td>
+            <td style="width: 35%; text-align: left; font-size: 11px; color: #64748b; line-height: 1.6; vertical-align: middle;">
+              التاريخ: ${new Date().toLocaleDateString("ar-SA")}<br>
+              العام الدراسي:
+            </td>
+          </tr>
+        </table>
+
+        <!-- Student Branded Metadata Card -->
+        <div style="background: linear-gradient(135deg, #f5f3ff 0%, #ffffff 100%); border: none; border-radius: 12px; padding: 12px 16px; margin-bottom: 22px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.01);">
+          <table style="width: 100%; border-collapse: collapse; text-align: right; font-size: 12.5px; font-family: 'Tajawal', sans-serif;">
+            <tr>
+              <td style="padding: 4px 0; color: #6b21a8; font-weight: bold; width: 14%;">اسم الطالب:</td>
+              <td style="padding: 4px 0; color: #1e1b4b; font-weight: 800; font-size: 13px; width: 36%;">${caseStudyName || "أحمد ناصر العوفي"}</td>
+              <td style="padding: 4px 0; color: #6b21a8; font-weight: bold; width: 14%;">الصف الدراسي:</td>
+              <td style="padding: 4px 0; color: #1e1b4b; font-weight: 800; font-size: 13px; width: 36%;">${caseStudyClass || "السادس الابتدائي / أ"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #6b21a8; font-weight: bold;">المشكلة:</td>
+              <td style="padding: 4px 0; color: #5b21b6; font-weight: bold; font-size: 13px;">${caseStudyType || "غياب وتأخر متكرر"}</td>
+              <td style="padding: 4px 0; color: #6b21a8; font-weight: bold;">مقر الخطة:</td>
+              <td style="padding: 4px 0; color: #5b21b6; font-weight: bold;">مكتب التوجيه الطلابي بمدرسة الجشة</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Rendered parsed lines -->
+        <div style="margin-bottom: 25px; line-height: 1.6;">
+          ${contentHtml}
+        </div>
+
+        <!-- Official Signatures Footer with counselor عبدالهادي بن محمد المحسن -->
+        <div style="margin-top: 35px; border-top: 2px dashed #ddd6fe; padding-top: 20px; display: flex; justify-content: space-between; align-items: flex-start; page-break-inside: avoid;">
+          <div style="text-align: center; width: 45%;">
+            <p style="margin: 0; font-size: 12px; font-weight: 800; color: #4f46e5;">الموجه الطلابي بمدرسة الجشة</p>
+            <p style="margin: 5px 0 0 0; font-size: 13px; font-weight: 900; color: #1e1b4b;">عبدالهادي بن محمد المحسن</p>
+            <p style="margin: 15px auto 0 auto; width: 120px; border-bottom: 1px dotted #ccc; height: 10px;"></p>
+          </div>
+          
+          <div style="text-align: center; width: 45%;">
+            <p style="margin: 0; font-size: 12px; font-weight: bold; color: #475569;">مدير المدرسة</p>
+            <p style="margin: 5px 0 0 0; font-size: 13px; font-weight: bold; color: #1e1b4b;">أحمد بن ناصر الدوسري</p>
+            <div style="margin: 12px auto 0 auto; width: 48px; height: 48px; border: 1.5px dotted #cbd5e1; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #94a3b8;">الختم</div>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  // Helper to compile a highly formatted, precise and beautiful HTML report for parent visits
+  const compileVisitsReportHtml = (filteredVisitsList?: ParentVisit[]) => {
+    const listToUse = filteredVisitsList || visits;
+    const tableRows = listToUse.map((v, idx) => {
+      const styles = getStatusStyles(v.status);
+      const rowBg = styles.rowBg;
+      const statusText = styles.label;
+      const statusColor = v.status === 'ملغاة' ? '#be123c' : (v.status === 'مجدولة' ? '#b45309' : '#15803d');
+      return `
+        <tr style="background-color: ${rowBg};">
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; text-align: center; font-weight: normal; color: #1e293b;">${idx + 1}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; text-align: right; font-weight: bold; color: #0f172a;">${v.parentName}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; text-align: right; font-weight: normal; color: #1e293b;">${v.studentName}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; text-align: center; font-weight: normal; color: #475569;">${v.className}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; text-align: center; color: #1e1b4b; white-space: nowrap; font-weight: normal;">${v.date}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11pt; text-align: center; font-weight: bold; color: ${statusColor};">${statusText}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; text-align: right; font-weight: normal; color: #334155; max-width: 200px; line-height: 1.4;">${v.purpose}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 10px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; text-align: right; color: #047857; font-weight: normal; line-height: 1.4; max-width: 250px;">${v.notes}</td>
+        </tr>
+      `;
+    }).join("");
+
+    const stats = getMonthlyStats();
+    const monthlyStats = stats.map(st => `
+      <td style="border: 1px solid #cbd5e1; padding: 8px; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: normal; background-color: #ffffff; text-align: center; color: #1e293b; width: ${100 / Math.max(1, stats.length)}%;">
+        <span style="font-size: 10pt; color: #64748b; display: block; margin-bottom: 2px;">${st.label}</span>
+        <span style="font-size: 11.5pt; color: #047857; font-weight: bold;">${st.count} زيارات</span>
+      </td>
+    `).join("");
+
+    return `
+      <div style="font-family: 'Tajawal', Arial, sans-serif; text-align: right; direction: rtl; padding: 25px; background: white; color: #1e293b; max-width: 850px; margin: auto;">
+        
+        <!-- Official Header with Word-compatible Table -->
+        <table style="width: 100%; border-collapse: collapse; border-bottom: 3.5px double #047857; padding-bottom: 15px; margin-bottom: 25px; font-family: 'Tajawal', Arial, sans-serif;">
+          <tr>
+            <td style="width: 35%; text-align: right; font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: normal; color: #1e1b4b; line-height: 1.6; vertical-align: middle;">
+              <strong>المملكة العربية السعودية</strong><br>
+              <strong>وزارة التعليم</strong><br>
+              الإدارة العامة للتعليم بالأحساء<br>
+              مدرسة الجشة المتوسطة<br>
+              <strong>قسم التوجيه الطلابي</strong>
+            </td>
+            <td style="width: 30%; text-align: center; vertical-align: middle;">
+              <h1 style="margin: 0; color: #047857; font-size: 18pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: bold; line-height: 1.2;">سجل زيارات أولياء الأمور</h1>
+              <p style="margin: 5px 0 0 0; font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; color: #64748b; font-weight: normal;">متابعة وتقييم الشراكة الإرشادية والتربوية</p>
+            </td>
+            <td style="width: 35%; text-align: left; font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: normal; color: #64748b; line-height: 1.6; vertical-align: middle;">
+              تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}<br>
+              العام الدراسي: 1447هـ<br>
+              نوع السجل: توثيق إداري إرشادي
+            </td>
+          </tr>
+        </table>
+
+        <!-- Color Block Summary -->
+        <div style="background-color: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 12px; padding: 15px; margin-bottom: 25px; font-family: 'Tajawal', Arial, sans-serif;">
+          <h2 style="color: #166534; margin: 0 0 8px 0; font-size: 13pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: bold;">💡 موجز إحصائيات سجل الزيارات:</h2>
+          <table style="width: 100%; border-collapse: collapse; border: none; margin-top: 10px; font-family: 'Tajawal', Arial, sans-serif;">
+            <tr>
+              <td style="width: 30%; padding: 5px; text-align: right; font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; color: #166534; font-weight: normal; vertical-align: middle;">
+                <strong>إجمالي الزيارات:</strong>
+                <span style="font-size: 18pt; color: #15803d; font-weight: bold; margin-right: 5px;">${listToUse.length}</span> زيارة
+              </td>
+              <td style="width: 70%; padding: 5px;">
+                <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; font-family: 'Tajawal', Arial, sans-serif;">
+                  <tr>
+                    ${monthlyStats || '<td style="padding: 8px; font-size: 11.5pt; font-family: \'Tajawal\', Arial, sans-serif; text-align: center; color: #94a3b8; font-weight: normal;">لا توجد بيانات شهرية</td>'}
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Main Detailed Table -->
+        <h3 style="color: #1e293b; font-size: 12pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: bold; margin: 0 0 12px 0; border-right: 4px solid #047857; padding-right: 8px;">📋 تفاصيل كشف الزيارات واللقاءات الإرشادية:</h3>
+        
+        <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #cbd5e1; margin-bottom: 30px; font-family: 'Tajawal', Arial, sans-serif;">
+          <thead>
+            <tr style="background-color: #047857; color: #ffffff;">
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: center; width: 4%;">م</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: right; width: 15%;">اسم ولي الأمر</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: right; width: 14%;">اسم الطالب</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: center; width: 11%;">الصف/الفصل</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: center; width: 10%;">التاريخ</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: center; width: 11%;">الحالة</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: right; width: 17%;">الغرض من الزيارة</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px; color: #ffffff; font-family: 'Tajawal', Arial, sans-serif; font-size: 11.5pt; font-weight: bold; text-align: right; width: 18%;">التوجيهات والإجراء المتخذ</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows || '<tr><td colspan="8" style="border: 1px solid #cbd5e1; padding: 25px; text-align: center; color: #94a3b8; font-family: \'Tajawal\', Arial, sans-serif; font-size: 11.5pt; font-weight: normal;">لا توجد سجلات مسجلة في كشف الزيارات حالياً</td></tr>'}
+          </tbody>
+        </table>
+
+        <!-- Signature Area -->
+        <table style="width: 100%; border-collapse: collapse; margin-top: 40px; page-break-inside: avoid; break-inside: avoid; font-family: 'Tajawal', Arial, sans-serif;">
+          <tr>
+            <td style="width: 50%; text-align: center; padding: 10px; font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: normal; color: #1e293b; line-height: 1.8; vertical-align: top;">
+              <strong>الموجه الطلابي:</strong><br>
+              <span style="font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: bold; color: #047857;">عبدالهادي بن محمد المحسن</span><br>
+              <span style="font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; color: #64748b;">التوقيع: .......................................</span>
+            </td>
+            <td style="width: 50%; text-align: center; padding: 10px; font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; font-weight: normal; color: #1e293b; line-height: 1.8; vertical-align: top;">
+              <strong>مدير المدرسة:</strong><br>
+              <span style="font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; color: #1e293b; font-weight: bold;">أحمد بن ناصر الدوسري</span><br>
+              <span style="font-size: 11.5pt; font-family: 'Tajawal', Arial, sans-serif; color: #64748b;">التوقيع والختم: .......................................</span>
+            </td>
+          </tr>
+        </table>
+
+      </div>
+    `;
+  };
+
+  const handlePrint = () => {
+    const reportHtml = compileTechnicalReportHtml();
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>طباعة التقرير الفني - ${program.title}</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+            <style>
+              body { font-family: 'Tajawal', sans-serif; background-color: white; margin: 0; padding: 0; }
+              @media print {
+                body { margin: 15mm; }
+                table, tbody, blockquote, pre {
+                  page-break-inside: auto !important;
+                  break-inside: auto !important;
+                }
+                tr, li {
+                  page-break-inside: avoid !important;
+                  break-inside: avoid !important;
+                }
+                p {
+                  page-break-inside: auto !important;
+                  break-inside: auto !important;
+                }
+                h1, h2, h3, h4, h5, h6 {
+                  page-break-after: avoid !important;
+                  break-after: avoid !important;
+                }
+              }
+            </style>
+          </head>
+          <body dir="rtl">
+            ${reportHtml}
+            <script>
+              window.onload = function() {
+                window.print();
+                setTimeout(() => { window.close(); }, 500);
+              }
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
+  // Export any modal element content to Microsoft Word (.doc)
+  const exportWordFile = (contentHtml: string, filename: string, landscape?: boolean) => {
+    const styleBlock = landscape 
+      ? `@page WordSection1 { size: 297mm 210mm; margin: 1.5cm; mso-page-orientation: landscape; } div.WordSection1 { page: WordSection1; } body { font-family: 'Tajawal', 'Arial', sans-serif; } img { max-width: 150px !important; max-height: 120px !important; width: auto !important; height: auto !important; display: block !important; margin: 0 auto !important; text-align: center !important; } #case-study-print-target img, .case-study-report-container img { max-width: 150px !important; max-height: 120px !important; width: auto !important; height: auto !important; display: block !important; margin: 0 auto !important; }`
+      : `body { font-family: 'Tajawal', 'Arial', sans-serif; } img { max-width: 150px !important; max-height: 120px !important; width: auto !important; height: auto !important; display: block !important; margin: 0 auto !important; text-align: center !important; } #case-study-print-target img, .case-study-report-container img { max-width: 150px !important; max-height: 120px !important; width: auto !important; height: auto !important; display: block !important; margin: 0 auto !important; }`;
+
+    
+    const bodyContent = landscape
+      ? `<div class="WordSection1">${contentHtml}</div>`
+      : contentHtml;
+
+    const blob = new Blob(
+      [
+        '\ufeff', 
+        `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40" dir="rtl">
+        <head>
+          <meta charset="utf-8">
+          <title>${filename}</title>
+          <!--[if gte mso 9]>
+          <xml>
+            <w:WordDocument>
+              <w:View>Print</w:View>
+              <w:Zoom>100</w:Zoom>
+              <w:DoNotOptimizeForBrowser/>
+            </w:WordDocument>
+          </xml>
+          <![endif]-->
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+            ${styleBlock}
+          </style>
+        </head>
+        <body>
+          ${bodyContent}
+        </body>
+        </html>`
+      ],
+      { type: 'application/msword' }
+    );
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${filename}.doc`;
+    link.click();
+  };
+
+  // Capture current program section screenshot
+  const captureScreenshot = () => {
+    const element = document.getElementById("program-details-capture");
+    if (!element) return;
+    html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+    }).then((canvas) => {
+      const link = document.createElement("a");
+      link.download = `بطاقة_برنامج_${program.title}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    });
+  };
+
+  // Dynamic stats calculation for 2026 Interactive Bento Dashboard
+  const totalCompletedActions = useMemo(() => {
+    return Object.values(completedProcedures).reduce((sum: number, list: any) => sum + (list ? list.length : 0), 0);
+  }, [completedProcedures]);
+
+  const totalGlobalProcedures = useMemo(() => {
+    let sum = 0;
+    Object.values(programsDB).forEach(prog => {
+      prog.timeline.forEach(phase => {
+        sum += phase.procedures.length;
+      });
+    });
+    return sum;
+  }, []);
+
+  const overallCompletionRate = useMemo(() => {
+    return totalGlobalProcedures > 0 ? Math.round((totalCompletedActions / totalGlobalProcedures) * 100) : 0;
+  }, [totalCompletedActions, totalGlobalProcedures]);
+
+  return (
+    <div className="min-h-screen animate-aurora flex flex-col relative antialiased" dir="rtl" style={{ fontFamily: "'Tajawal', system-ui, sans-serif" }}>
+      
+      {/* HEADER SECTION */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-gradient-to-br from-[#0A3E72] via-[#0D8E81] to-[#147A3F] border-b border-white/15 shadow-[0_8px_32px_rgba(10,24,64,0.18)] transition-all duration-300 overflow-hidden relative">
+        {/* Ambient background glowing circles (Sea Blue & Grass Green) */}
+        <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-72 h-72 rounded-full bg-[#38BDF8]/12 blur-3xl pointer-events-none z-0" />
+        <div className="absolute top-1/2 right-1/4 -translate-y-1/2 w-80 h-80 rounded-full bg-[#4ADE80]/10 blur-3xl pointer-events-none z-0" />
+
+        {/* Beautiful linear gradient top thin lightbar (Ocean Blue to Grass Green) */}
+        <div className="h-[3px] w-full relative z-10" style={{ backgroundImage: 'linear-gradient(90deg, #38BDF8, #2DD4BF, #4ADE80, #16A34A)' }} />
+        
+        {/* Inner Glass Layer for Top Section */}
+        <div style={{ background: 'rgba(255, 255, 255, 0.12)', backdropFilter: 'blur(18px) saturate(145%)', WebkitBackdropFilter: 'blur(18px) saturate(145%)', borderColor: 'rgba(255, 255, 255, 0.26)' }} className="border-b transition-all duration-300 relative z-10">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 flex flex-col md:flex-row justify-between items-center gap-4">
+            
+            <div className="flex items-center gap-3.5 group">
+              {/* Book Icon inside a light glass square with rounded corners and soft sea-green shadow/glow */}
+              <div className="relative">
+                <div className="absolute -inset-1 bg-gradient-to-r from-[#38BDF8] to-[#4ADE80] rounded-[16px] blur opacity-25 group-hover:opacity-60 transition duration-500" />
+                <div style={{ background: 'rgba(255, 255, 255, 0.16)' }} className="relative border border-white/20 p-2.5 rounded-[16px] shadow-[0_0_12px_rgba(74,222,128,0.25)] transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_0_20px_rgba(56,189,248,0.45)] group-hover:border-white/40">
+                  <svg className="w-6 h-6 text-[#99F6E4] filter drop-shadow-[0_0_6px_rgba(153,246,228,0.45)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                </div>
+              </div>
+              
+              <div>
+                <h1 className="text-lg sm:text-2xl font-black tracking-tight text-[#FFFFFF]">
+                  لوحة برامج وخدمات التوجيه الطلابي
+                </h1>
+                <p className="text-[#A7F3D0] text-xs sm:text-sm font-semibold mt-0.5 tracking-wide">مدرسة الجشة المتوسطة</p>
+              </div>
+            </div>
+            
+            {/* User Info Capsule */}
+            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+              <div 
+                style={{ background: 'rgba(255, 255, 255, 0.13)', borderColor: 'rgba(255, 255, 255, 0.26)' }} 
+                className="text-xs sm:text-sm border shadow-[0_4px_12px_rgba(0,0,0,0.15)] flex items-center gap-2.5 px-4.5 py-2 rounded-full font-bold text-slate-100 transition-all duration-300 hover:border-[#4ADE80]/50"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#4ADE80] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#4ADE80] shadow-[0_0_8px_rgba(74,222,128,0.6)]"></span>
+                </span>
+                <span>الموجه الطلابي: عبدالهادي بن محمد المحسن</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        {/* BOTTOM CONTROLLER ROW (Action & Selection Bar) - Blending ocean blue and grass green */}
+        <div style={{ backgroundImage: 'linear-gradient(90deg, rgba(11, 62, 114, 0.90), rgba(20, 110, 65, 0.88))' }} className="backdrop-blur-md border-t border-white/20 px-4 sm:px-6 lg:px-8 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_4px_30px_rgba(0,0,0,0.3)] relative z-10">
+          <div className="max-w-7xl mx-auto flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
+              <label htmlFor="program-select" className="text-[#A7F3D0] text-xs font-black tracking-wider whitespace-nowrap uppercase">اختر البرنامج والخدمات:</label>
+              <div className="relative flex-grow sm:flex-none w-full sm:w-auto">
+                <select
+                  id="program-select"
+                  value={currentProgramId}
+                  onChange={(e) => setCurrentProgramId(e.target.value)}
+                  style={{ background: 'rgba(255, 255, 255, 0.11)', borderColor: 'rgba(255, 255, 255, 0.22)' }}
+                  className="border text-slate-100 text-xs sm:text-sm rounded-[16px] focus:ring-2 focus:ring-[#4ADE80]/40 focus:border-[#4ADE80]/50 block w-full lg:w-80 p-2.5 px-3.5 outline-none cursor-pointer shadow-lg backdrop-blur-md transition-all duration-300 hover:-translate-y-[2px] hover:border-[#4ADE80]/60 hover:shadow-[0_4px_15px_rgba(74,222,128,0.15)] font-bold text-right"
+                >
+                  <optgroup label="البرامج النمائية والتهيئة" className="bg-[#0A3E72] text-white">
+                    <option value="prog_intro_week">الأسبوع التمهيدي</option>
+                    <option value="prog_psych_prep">التهيئة النفسية</option>
+                  </optgroup>
+                  <optgroup label="البرامج النمائية والوقائية" className="bg-[#0A3E72] text-white">
+                    <option value="prog_positive_behavior">تعزيز السلوك الإيجابي</option>
+                  </optgroup>
+                  <optgroup label="البرامج النمائية (المهنية)" className="bg-[#0A3E72] text-white">
+                    <option value="prog_career_guidance">التوجيه المهني</option>
+                  </optgroup>
+                  <optgroup label="البرامج العلاجية" className="bg-[#0A3E72] text-white">
+                    <option value="prog_remedial_plan">الخطة العلاجية لرفع المستوى التحصيلي</option>
+                  </optgroup>
+                  <optgroup label="البرامج الوقائية" className="bg-[#0A3E72] text-white">
+                    <option value="prog_safe_internet">الاستخدام الآمن للإنترنت والألعاب الإلكترونية</option>
+                    <option value="prog_anti_bullying">مناهضة العنف والتنمر</option>
+                  </optgroup>
+                  <optgroup label="البرامج التنظيمية والعلاجية" className="bg-[#0A3E72] text-white">
+                    <option value="prog_behavior_rules">قواعد السلوك والمواظبة</option>
+                  </optgroup>
+                  <optgroup label="البرامج التكريمية والنمائية" className="bg-[#0A3E72] text-white">
+                    <option value="prog_graduates">الاحتفاء بالطلبة الخريجين</option>
+                  </optgroup>
+                  <optgroup label="برامج الشراكة المجتمعية" className="bg-[#0A3E72] text-white">
+                    <option value="prog_parents_council">مجالس أولياء الأمور</option>
+                  </optgroup>
+                </select>
+              </div>
+            </div>
+
+            {/* ACTION BUTTONS WITH SOFT HOVER & ELEVATION EFFECT */}
+            <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-end">
+              <button
+                onClick={() => {
+                  const el = document.getElementById("operational-plans-hub");
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
+                style={{ backgroundImage: 'linear-gradient(135deg, #7C3AED, #0284C7)' }}
+                className="hover:border-purple-300/50 border border-transparent text-white shadow-lg backdrop-blur-md px-4 py-2.5 rounded-[16px] text-xs sm:text-sm font-bold flex items-center gap-2 transition-all duration-300 hover:-translate-y-[2px] hover:shadow-[0_4px_15px_rgba(124,58,237,0.35)] cursor-pointer"
+              >
+                <Compass className="w-4 h-4 text-amber-300 animate-spin" style={{ animationDuration: '8s' }} />
+                <span>الخطط التشغيلية والإرشادية (١٣)</span>
+              </button>
+
+              <button
+                onClick={() => setShowGuidanceReportsModal(true)}
+                style={{ backgroundImage: 'linear-gradient(135deg, #0284C7, #16A34A)' }}
+                className="hover:border-[#4ADE80]/50 border border-transparent text-white shadow-lg backdrop-blur-md px-4 py-2.5 rounded-[16px] text-xs sm:text-sm font-bold flex items-center gap-2 transition-all duration-300 hover:-translate-y-[2px] hover:shadow-[0_4px_15px_rgba(22,163,74,0.35)] cursor-pointer"
+              >
+                تقارير البرامج والخدمات
+              </button>
+              
+              <button
+                onClick={() => setShowCaseStudyModal(true)}
+                style={{ background: 'rgba(255, 255, 255, 0.11)', borderColor: 'rgba(255, 255, 255, 0.20)' }}
+                className="hover:border-[#4ADE80]/50 border text-slate-100 hover:text-white shadow-lg backdrop-blur-md px-4 py-2.5 rounded-[16px] text-xs sm:text-sm font-bold flex items-center gap-2 transition-all duration-300 hover:-translate-y-[2px] hover:shadow-[0_4px_15px_rgba(255,255,255,0.08)] cursor-pointer"
+              >
+                خطة دراسة حالة
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </header>
+
+      {/* MAIN LAYOUT */}
+      <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 w-full relative space-y-8">
+        
+        {/* 2026 INTERACTIVE BENTO DASHBOARD STATS */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {/* Card 1: Completion Rate */}
+          <div className="glass-card p-5 flex flex-col justify-between hover-3d-card relative overflow-hidden group border border-white/60">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#3d7eb9]/10 rounded-full blur-2xl group-hover:bg-[#3d7eb9]/15 transition-all pointer-events-none" />
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black text-[#15445a] bg-[#3d7eb9]/10 px-2.5 py-1 rounded-md">معدل الإنجاز العام</span>
+              <div className="p-2 bg-white rounded-xl shadow-2xs text-[#3d7eb9]">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4 flex items-end justify-between">
+              <div>
+                <span className="text-3xl font-black text-slate-950 tracking-tight">{overallCompletionRate}%</span>
+                <p className="text-[10px] text-slate-400 font-bold mt-1">المعدل التراكمي لـ ١٠ برامج</p>
+              </div>
+              {/* Micro visual indicator */}
+              <div className="w-10 h-10 flex items-center justify-center relative">
+                <svg className="w-full h-full transform -rotate-90">
+                  <circle cx="20" cy="20" r="16" className="stroke-slate-100" strokeWidth="3" fill="transparent" />
+                  <circle cx="20" cy="20" r="16" className="stroke-[#3d7eb9]" strokeWidth="3.5" fill="transparent"
+                    strokeDasharray={2 * Math.PI * 16}
+                    strokeDashoffset={2 * Math.PI * 16 * (1 - overallCompletionRate / 100)}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span className="absolute text-[9px] font-extrabold text-[#3d7eb9]">{overallCompletionRate}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Completed Procedures */}
+          <div className="glass-card p-5 flex flex-col justify-between hover-3d-card relative overflow-hidden group border border-white/60">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#0da9a6]/10 rounded-full blur-2xl group-hover:bg-[#0da9a6]/15 transition-all pointer-events-none" />
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black text-[#15445a] bg-[#0da9a6]/10 px-2.5 py-1 rounded-md">الإجراءات المكتملة</span>
+              <div className="p-2 bg-white rounded-xl shadow-2xs text-[#0da9a6]">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="flex items-baseline gap-1">
+                <span className="text-3xl font-black text-slate-950 tracking-tight">{totalCompletedActions}</span>
+                <span className="text-slate-400 text-xs font-bold">/ {totalGlobalProcedures} إجراء مفعّل</span>
+              </div>
+              {/* Progress Line */}
+              <div className="w-full h-1.5 bg-slate-200/50 rounded-full overflow-hidden mt-3">
+                <div className="h-full bg-gradient-to-r from-[#0da9a6] to-[#3d7eb9] rounded-full transition-all duration-500" style={{ width: `${overallCompletionRate}%` }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Students Registry (Interactive trigger) */}
+          <button 
+            onClick={() => setShowStudentsModal(true)}
+            className="glass-card p-5 flex flex-col justify-between hover-3d-card relative overflow-hidden group text-right cursor-pointer border border-white/60"
+          >
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#07a869]/10 rounded-full blur-2xl group-hover:bg-[#07a869]/15 transition-all pointer-events-none" />
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black text-[#15445a] bg-[#07a869]/10 px-2.5 py-1 rounded-md">كشوفات الطلاب (نور)</span>
+              <div className="p-2 bg-white rounded-xl shadow-2xs text-[#07a869] group-hover:scale-110 transition-transform">
+                <FileSpreadsheet className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4 flex items-end justify-between">
+              <div>
+                <span className="text-3xl font-black text-slate-950 tracking-tight">
+                  {students.length > 0 ? students.length : "٠"}
+                </span>
+                <span className="text-slate-400 text-xs font-bold mr-1">طالب مسجل</span>
+                <p className="text-[10px] text-slate-400 font-bold mt-1">اضغط لاستيراد أو تصفح القوائم</p>
+              </div>
+              <span className={`text-[9px] font-black px-2.5 py-1 rounded-md ${students.length > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-amber-50 text-amber-700 border border-amber-100'}`}>
+                {students.length > 0 ? "نشط" : "بانتظار الرفع"}
+              </span>
+            </div>
+          </button>
+
+          {/* Card 4: Parent Visits (Interactive trigger) */}
+          <button 
+            onClick={() => setShowVisitsModal(true)}
+            className="glass-card p-5 flex flex-col justify-between hover-3d-card relative overflow-hidden group text-right cursor-pointer border border-white/60"
+          >
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#c1b489]/10 rounded-full blur-2xl group-hover:bg-[#c1b489]/15 transition-all pointer-events-none" />
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black text-[#15445a] bg-[#c1b489]/10 px-2.5 py-1 rounded-md">زيارات أولياء الأمور</span>
+              <div className="p-2 bg-white rounded-xl shadow-2xs text-[#c1b489] group-hover:scale-110 transition-transform">
+                <Users className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4 flex items-end justify-between">
+              <div>
+                <span className="text-3xl font-black text-slate-950 tracking-tight">{visits.length}</span>
+                <span className="text-slate-400 text-xs font-bold mr-1">زيارة موثقة</span>
+                <p className="text-[10px] text-slate-400 font-bold mt-1">اضغط لتسجيل زيارة أو طباعة السجل</p>
+              </div>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+            </div>
+          </button>
+        </section>
+
+        {/* 13 OPERATIONAL AND GUIDANCE PLANS SECTION */}
+        <OperationalPlansSection
+          onSelectPlan={(plan) => {
+            setSelectedOperationalPlan(plan);
+            setShowOperationalPlanModal(true);
+          }}
+        />
+
+        {/* PROGRAM CARDS EXPLORER */}
+        <section className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h3 className="text-lg sm:text-xl font-black text-slate-900 flex items-center gap-2">
+                <School className="w-5.5 h-5.5 text-teal-600 animate-pulse" />
+                لوحة تصفح البرامج والخدمات التوجيهية المعتمدة
+              </h3>
+              <p className="text-slate-500 text-xs sm:text-sm font-medium">اضغط على أي بطاقة لتفعيل واستعراض تفاصيل الخطة، المؤشرات، والتقارير الفنية المصاحبة لها فورياً</p>
+            </div>
+            <span className="text-xs font-bold text-teal-800 bg-teal-50 border border-teal-100 px-3.5 py-1.5 rounded-full shadow-xs">
+              {Object.keys(programsDB).length} برنامجاً إرشادياً معتمداً
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            {Object.values(programsDB).map((prog) => {
+              const isActive = prog.id === currentProgramId;
+              
+              // Premium soft refreshing pastel glassmorphism colors based on category
+              let themeClasses = "";
+              if (prog.category.includes("التهيئة") || prog.category.includes("النفسية")) {
+                themeClasses = isActive 
+                  ? "bg-gradient-to-br from-[#3d7eb9]/25 via-indigo-100/40 to-white/45 border-[#3d7eb9] text-[#15445a] ring-2 ring-[#3d7eb9]/25 shadow-xl font-bold"
+                  : "bg-gradient-to-br from-indigo-50/20 via-white/45 to-[#3d7eb9]/5 backdrop-blur-md border-white/60 text-slate-700 hover:from-indigo-50/40 hover:to-[#3d7eb9]/15 hover:border-[#3d7eb9]/40 hover:shadow-xl hover-3d-card";
+              } else if (prog.category.includes("الوقائية")) {
+                themeClasses = isActive 
+                  ? "bg-gradient-to-br from-[#0da9a6]/25 via-emerald-100/40 to-white/45 border-[#0da9a6] text-[#15445a] ring-2 ring-[#0da9a6]/25 shadow-xl font-bold"
+                  : "bg-gradient-to-br from-emerald-50/20 via-white/45 to-[#0da9a6]/5 backdrop-blur-md border-white/60 text-slate-700 hover:from-emerald-50/40 hover:to-[#0da9a6]/15 hover:border-[#0da9a6]/40 hover:shadow-xl hover-3d-card";
+              } else if (prog.category.includes("العلاجية")) {
+                themeClasses = isActive 
+                  ? "bg-gradient-to-br from-[#0da9a6]/25 via-sky-100/40 to-white/45 border-[#0da9a6] text-[#15445a] ring-2 ring-[#0da9a6]/25 shadow-xl font-bold"
+                  : "bg-gradient-to-br from-sky-50/20 via-white/45 to-[#0da9a6]/5 backdrop-blur-md border-white/60 text-slate-700 hover:from-sky-50/40 hover:to-[#0da9a6]/15 hover:border-[#0da9a6]/40 hover:shadow-xl hover-3d-card";
+              } else if (prog.category.includes("المهنية") || prog.category.includes("التكريمية")) {
+                themeClasses = isActive 
+                  ? "bg-gradient-to-br from-[#c1b489]/25 via-amber-100/40 to-white/45 border-[#c1b489] text-[#15445a] ring-2 ring-[#c1b489]/25 shadow-xl font-bold"
+                  : "bg-gradient-to-br from-amber-50/20 via-white/45 to-[#c1b489]/5 backdrop-blur-md border-white/60 text-slate-700 hover:from-amber-50/40 hover:to-[#c1b489]/15 hover:border-[#c1b489]/40 hover:shadow-xl hover-3d-card";
+              } else {
+                themeClasses = isActive 
+                  ? "bg-gradient-to-br from-[#07a869]/25 via-teal-100/40 to-white/45 border-[#07a869] text-[#15445a] ring-2 ring-[#07a869]/25 shadow-xl font-bold"
+                  : "bg-gradient-to-br from-teal-50/20 via-white/45 to-[#07a869]/5 backdrop-blur-md border-white/60 text-slate-700 hover:from-teal-50/40 hover:to-[#07a869]/15 hover:border-[#07a869]/40 hover:shadow-xl hover-3d-card";
+              }
+
+              // Calculate active progress metrics
+              const progress = (() => {
+                let totalCount = 0;
+                prog.timeline.forEach(phase => {
+                  totalCount += phase.procedures.length;
+                });
+                const completedList = completedProcedures[prog.id] || [];
+                const completedCount = completedList.length;
+                const percent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+                return { percent, completedCount, totalCount };
+              })();
+
+              return (
+                <button
+                  key={prog.id}
+                  onClick={() => setCurrentProgramId(prog.id)}
+                  className={`w-full text-right p-5 rounded-3xl border flex flex-col justify-between min-h-[220px] transition-all duration-300 active:scale-95 cursor-pointer relative group overflow-hidden ${themeClasses}`}
+                >
+                  {/* Subtle decorative background shine */}
+                  <div className="absolute -right-6 -bottom-6 w-16 h-16 bg-white/10 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+
+                  <div className="space-y-2.5 w-full">
+                    {/* Category pill and icon */}
+                    <div className="flex justify-between items-start gap-1.5 w-full">
+                      <span className="text-[9px] font-extrabold tracking-tight bg-white/75 backdrop-blur-xs px-2 py-1 rounded-md shadow-2xs border border-slate-100 text-slate-500 shrink-0">
+                        {prog.category}
+                      </span>
+                      <div className={`p-1.5 rounded-lg bg-white shadow-2xs border border-slate-100 shrink-0 ${isActive ? 'text-teal-600 scale-110' : 'text-slate-400'} transition-all`}>
+                        {getIconComponent(prog.iconName, "w-4 h-4")}
+                      </div>
+                    </div>
+
+                    {/* Title */}
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black leading-snug text-slate-800 group-hover:text-slate-900 transition-colors">
+                        {prog.title}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-0.5">توقيت: {prog.duration}</p>
+                    </div>
+
+                    {/* Progress Bar component */}
+                    <div className="space-y-1 w-full bg-white/50 group-hover:bg-white/80 p-2 rounded-xl border border-slate-200/30 transition-colors">
+                      <div className="flex justify-between items-center text-[9px] font-bold">
+                        <span className="text-slate-500">نسبة الإنجاز:</span>
+                        <span className={isActive ? "text-teal-700 font-extrabold" : "text-slate-600 font-extrabold"}>
+                          {progress.percent}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-200/40 rounded-full overflow-hidden border border-slate-200/10">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            isActive ? "bg-teal-600" : "bg-slate-400"
+                          }`}
+                          style={{ width: `${progress.percent}%` }}
+                        />
+                      </div>
+                      <div className="text-[9px] text-slate-400 font-bold text-left">
+                        {progress.completedCount} من {progress.totalCount} إجراءات
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Status Indicator */}
+                  <div className="mt-2.5 flex items-center justify-between w-full pt-2 border-t border-slate-200/30">
+                    <span className="text-[9px] font-bold text-slate-400 group-hover:text-slate-500">{prog.nature}</span>
+                    {isActive ? (
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-400/50 animate-pulse" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-slate-200 group-hover:bg-slate-300" />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <div id="program-details-capture" className="glass-card shadow-xl p-4 sm:p-8 space-y-8 sm:space-y-12">
+          
+          {/* TITLE & HEADER INFOBAR */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-100 pb-5 gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center border border-teal-100/80 shadow-inner">
+                {getIconComponent(program.iconName, "w-6 h-6 text-teal-600")}
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center gap-2">
+                  {program.title}
+                </h2>
+                <p className="text-slate-400 text-xs font-semibold">{program.category}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-full text-xs font-bold border border-slate-200/50">
+                طبيعة السلوك: {program.nature}
+              </span>
+              <span className="bg-teal-50 text-teal-800 px-3 py-1.5 rounded-full text-xs font-bold border border-teal-100">
+                توقيت البرنامج: {program.duration}
+              </span>
+            </div>
+          </div>
+
+          {/* OVERVIEW CARDS */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2.5 mb-2">
+              <BookOpen className="w-5 h-5 text-teal-600" />
+              <h3 className="text-base sm:text-lg font-black text-slate-800">بطاقة تعريف البرنامج الإرشادي</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gradient-to-br from-teal-50/20 to-teal-100/10 p-5 rounded-2xl border border-teal-100/30 flex flex-col justify-between md:col-span-2">
+                <div>
+                  <h4 className="text-xs font-bold text-teal-800/85 mb-1.5 flex items-center gap-1">
+                    <Target className="w-4 h-4 text-teal-600" /> هدف ورسالة البرنامج
+                  </h4>
+                  <p className="text-sm sm:text-base font-bold text-slate-800 leading-relaxed text-justify">
+                    {program.mission}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 flex flex-col justify-center">
+                <h4 className="text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                  <ShieldCheck className="w-4 h-4 text-slate-500" /> الجهة المستهدفة والمسؤولة
+                </h4>
+                <p className="text-sm font-bold text-slate-800 leading-relaxed">
+                  تنسيق الموجه الطلابي مع منسوبي المدرسة والهيئة التعليمية وأسر الطلاب لضمان الإنجاز المتكامل.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* INTERACTIVE KPIS & ADJUSTMENTS */}
+          <section className="bg-white p-5 sm:p-7 rounded-2xl border border-slate-100 shadow-sm space-y-6">
+            <div className="text-center max-w-xl mx-auto space-y-1.5">
+              <h3 className="text-base sm:text-lg font-black text-slate-900">مؤشرات التحقق وخطة قياس الأهداف</h3>
+              <p className="text-xs sm:text-sm text-slate-500">تتبع مستويات تفاعل وجودة الإنجاز الميداني وفق متطلبات إدارة التوجيه الطلابي.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              {renderCircularProgress(program.kpis.chart1.target, program.kpis.chart1.color, program.kpis.chart1.title)}
+              {renderCircularProgress(program.kpis.chart2.target, program.kpis.chart2.color, program.kpis.chart2.title)}
+              {renderCircularProgress(program.kpis.chart3.target, program.kpis.chart3.color, program.kpis.chart3.title)}
+            </div>
+
+            {/* ADJUSTABLE METRIC SECTION */}
+            <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-center gap-4 text-center sm:text-right">
+              <div className="relative shrink-0">
+                <input
+                  type="number"
+                  value={getMetricValue()}
+                  onChange={(e) => handleMetricChange(Number(e.target.value))}
+                  min="0"
+                  className="w-24 h-14 bg-teal-50 text-teal-800 border-2 border-teal-200 focus:border-teal-500 rounded-xl text-center text-2xl font-black outline-none focus:ring-4 focus:ring-teal-100 transition-all shadow-sm hover:bg-teal-100"
+                />
+                <span className="absolute -top-2.5 -right-2 bg-teal-600 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">قابل للتعديل</span>
+              </div>
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm sm:text-base flex items-center gap-2 justify-center sm:justify-start">
+                  {program.kpis.metric.title}
+                </h4>
+                <p className="text-slate-500 text-xs mt-1 leading-relaxed">
+                  {program.kpis.metric.desc} (سجل القيمة الحقيقية المفعلة بالمدرسة لتوثيقها في تقرير الإنجاز الفني).
+                </p>
+              </div>
+            </div>
+
+            {/* STATS BOOSTER CONTROLLER */}
+            <div className="pt-5 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 bg-teal-50/30 p-4 rounded-xl border border-teal-100/50">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-teal-600" />
+                <div className="text-right">
+                  <h4 className="font-bold text-slate-800 text-xs sm:text-sm">زيادة وتعديل نسب الإحصائيات الشهرية في التقارير</h4>
+                  <p className="text-slate-500 text-[11px] mt-0.5">تحكم في مستوى رفع الإحصائيات الإضافي لجميع المؤشرات البيانية ديناميكياً.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
+                <span className="text-xs font-bold text-teal-800 bg-teal-100/80 border border-teal-200 px-2 py-1 rounded-lg shadow-sm shrink-0">
+                  +{statsBooster}% زيادة
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="30"
+                  step="1"
+                  value={statsBooster}
+                  onChange={(e) => setStatsBooster(Number(e.target.value))}
+                  className="w-full md:w-48 accent-teal-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* VERIFICATION CRITERIA (مؤشرات شواهد الإنجاز) */}
+          {program.verification && (
+            <section className="bg-teal-50/40 p-6 rounded-2xl border border-teal-100 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-teal-100 text-teal-800 p-2.5 rounded-xl border border-teal-200">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-teal-950">مؤشرات التحقق وشواهد الإنجاز المطلوبة</h3>
+                  <p className="text-slate-500 text-xs">قائمة الملفات والتوثيقات الرسمية المطلوبة لإتمام البرنامج بنجاح.</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
+                  <h4 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-1.5 border-b border-slate-50 pb-2">
+                    <FileText className="w-4 h-4 text-teal-600" /> الأوراق والمستندات بملف الإنجاز:
+                  </h4>
+                  <ul className="space-y-2.5">
+                    {program.verification.reqs.map((req, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-700">
+                        <span className="w-4 h-4 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-[10px] mt-0.5 shrink-0">✓</span>
+                        <span>{req}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="bg-gradient-to-br from-teal-800 to-teal-950 rounded-xl p-5 text-white shadow-md relative overflow-hidden flex flex-col justify-between">
+                  <div className="absolute top-0 left-0 w-32 h-32 bg-white/5 rounded-full -translate-x-10 -translate-y-10 pointer-events-none" />
+                  <div>
+                    <h4 className="font-black text-sm mb-2.5 flex items-center gap-1.5 relative z-10 text-teal-300">
+                      <Sparkles className="w-4 h-4 text-teal-300" /> خدمات ذكية مساندة لك:
+                    </h4>
+                    <p className="text-teal-50 text-xs sm:text-sm leading-relaxed relative z-10 text-justify" dangerouslySetInnerHTML={{ __html: program.verification.ai_role }} />
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* TIMELINE & PROCEDURES */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-teal-600" />
+              <h3 className="text-base sm:text-lg font-black text-slate-800">الإجراءات التنفيذية والمسار الزمني التفصيلي</h3>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200/60 overflow-hidden shadow-sm">
+              <div className="flex overflow-x-auto no-scrollbar border-b border-slate-100 bg-slate-50/50">
+                {program.timeline.map((phase) => (
+                  <button
+                    key={phase.id}
+                    onClick={() => setSelectedPhaseId(phase.id)}
+                    className={`flex-1 py-3.5 px-5 border-b-2 text-xs sm:text-sm font-bold text-center whitespace-nowrap transition-all cursor-pointer ${
+                      selectedPhaseId === phase.id
+                        ? "border-teal-600 text-teal-800 bg-white"
+                        : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100/50"
+                    }`}
+                  >
+                    {phase.title}
+                  </button>
+                ))}
+              </div>
+              
+              <div className="p-5 sm:p-7 min-h-[150px]">
+                <div className="mb-4 text-[11px] sm:text-xs font-bold text-teal-800 bg-teal-50/60 border border-teal-100 p-2.5 rounded-xl flex items-center gap-1.5">
+                  <span>💡</span>
+                  <span>اضغط على أي إجراء بالأسفل لتغيير حالة الإنجاز (منجز / قيد التنفيذ) لتحديث شريط التقدم باللوحة الرئيسية تلقائياً.</span>
+                </div>
+                {program.timeline.map((phase) => {
+                  if (phase.id !== selectedPhaseId) return null;
+                  return (
+                    <div key={phase.id} className="space-y-5 animate-fadeIn">
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <span className="bg-slate-100 text-slate-700 font-bold px-3 py-1 rounded-full text-xs border border-slate-200/50">
+                          التوقيت: {phase.timing}
+                        </span>
+                        <span className="bg-teal-50 text-teal-800 font-bold px-3 py-1 rounded-full text-xs border border-teal-100">
+                          الفئة المستهدفة: {phase.target}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {phase.procedures.map((proc, idx) => {
+                          const procKey = `${phase.id}-${idx}`;
+                          const isCompleted = completedProcedures[program.id]?.includes(procKey);
+                          return (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                setCompletedProcedures(prev => {
+                                  const list = prev[program.id] || [];
+                                  const newList = list.includes(procKey)
+                                    ? list.filter(k => k !== procKey)
+                                    : [...list, procKey];
+                                  return { ...prev, [program.id]: newList };
+                                });
+                              }}
+                              className={`w-full flex items-start gap-3 p-3.5 rounded-xl border text-right transition-all duration-200 cursor-pointer ${
+                                isCompleted 
+                                  ? "bg-emerald-50/70 border-emerald-200/70 hover:bg-emerald-50 shadow-2xs" 
+                                  : "bg-slate-50/50 border-slate-100/60 hover:bg-slate-50"
+                              }`}
+                            >
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border text-[10px] font-black transition-all ${
+                                isCompleted 
+                                  ? "bg-emerald-500 text-white border-emerald-600" 
+                                  : "bg-white text-slate-400 border-slate-200"
+                              }`}>
+                                {isCompleted ? "✓" : idx + 1}
+                              </div>
+                              <span className={`text-xs sm:text-sm font-semibold leading-relaxed transition-all ${
+                                isCompleted ? "text-slate-500 line-through decoration-slate-400 decoration-1" : "text-slate-700"
+                              }`}>{proc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          {/* GRID OF RECOMMENDATIONS AND CHALLENGES */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+            {/* RECOMMENDATIONS */}
+            <section className="space-y-4">
+              <h3 className="text-base sm:text-lg font-black text-slate-800 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-teal-600" /> التوصيات الإرشادية لنجاح البرنامج
+              </h3>
+              <div className="space-y-3">
+                {program.recs.map((rec, idx) => (
+                  <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-100/80 shadow-sm flex gap-4 items-start hover:shadow transition-shadow">
+                    <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center shrink-0 border border-teal-100 text-lg">
+                      <Award className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-slate-900 text-xs sm:text-sm mb-1">{rec.title}</h4>
+                      <p className="text-slate-600 text-xs leading-relaxed">{rec.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* CHALLENGES */}
+            <section className="space-y-4">
+              <h3 className="text-base sm:text-lg font-black text-slate-800 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-600" /> التحديات المتوقعة وحلولها المبتكرة
+              </h3>
+              <div className="space-y-3">
+                {program.challenges.map((chal, idx) => (
+                  <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-100/80 shadow-sm flex gap-4 items-start hover:shadow transition-shadow">
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0 border border-amber-100 text-lg">
+                      <AlertCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-slate-900 text-xs sm:text-sm mb-1">{chal.title}</h4>
+                      <p className="text-slate-600 text-xs leading-relaxed">{chal.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          {/* ACTION BUTTONS */}
+          <div className="mt-8 flex flex-col sm:flex-row flex-wrap justify-center gap-3 sm:gap-4 border-t border-slate-100 pt-6">
+            <button
+              onClick={() => {
+                setShowReportModal(true);
+              }}
+              className="bg-teal-600 hover:bg-teal-700 text-white font-extrabold py-3.5 px-6 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm sm:text-base cursor-pointer"
+            >
+              <FileText className="w-5 h-5" /> استخراج وتدقيق التقرير الفني الشامل
+            </button>
+            
+            <button
+              onClick={() => {
+                setPresentationCurrentSlide(0);
+                setShowPresentationSlidesModal(true);
+              }}
+              className="bg-gradient-to-r from-[#0D8E81] to-[#0A3E72] hover:opacity-90 text-white font-extrabold py-3.5 px-6 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm sm:text-base cursor-pointer"
+            >
+              <Presentation className="w-5 h-5 text-[#4ADE80]" /> عرض الشرائح البيانية التفاعلية (Slides)
+            </button>
+            
+            <button
+              onClick={captureScreenshot}
+              className="bg-slate-700 hover:bg-slate-800 text-white font-extrabold py-3.5 px-6 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm sm:text-base cursor-pointer"
+            >
+              <Camera className="w-5 h-5" /> تصدير بطاقة البرنامج كلقطة شاشة
+            </button>
+          </div>
+
+        </div>
+      </main>
+
+      {/* FOOTER */}
+      <footer className="bg-slate-900 text-slate-400 py-6 text-center text-xs sm:text-sm border-t border-slate-800">
+        <p>منصة برامج وخدمات التوجيه الطلابي - مدرسة الجشة المتوسطة</p>
+        <p className="text-slate-500 text-[11px] mt-1">تطوير ودعم تقني شامل للموجه الطلابي لرفع كفاءة تفعيل شواهد الإنجاز</p>
+      </footer>
+
+      {/* --- MODALS --- */}
+
+      {/* 1. REPORT COMPILER MODAL */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-2 sm:p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[95vh] sm:h-[92vh] max-h-[95vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-teal-50 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center font-bold shadow-inner">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-teal-950 text-sm sm:text-base">
+                    محضّر ومنسق تقارير التوجيه الطلابي الشامل (الشواهد والتحليل الفني)
+                  </h3>
+                  <p className="text-[10px] sm:text-xs text-slate-500 font-bold">مدرسة الجشة • لوحة إعداد مستند الإنجاز والتوثيق المعتمد</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-xl p-1.5 cursor-pointer bg-slate-100 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Split Workspace */}
+            <div className="flex-grow p-3 sm:p-5 bg-slate-100/60 overflow-hidden min-h-0 flex flex-col lg:flex-row gap-4">
+              
+              {/* Right Column: Control & Tools Workspace (42% width) */}
+              <div className="lg:w-[42%] flex flex-col h-full bg-white rounded-2xl border border-slate-200/50 shadow-sm overflow-hidden min-h-0 shrink-0">
+                
+                {/* Tabs Selector */}
+                <div className="bg-slate-50 border-b border-slate-100 p-2 flex shrink-0 gap-1 overflow-x-auto">
+                  <button
+                    onClick={() => setReportActiveTab("analysis")}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 ${
+                      reportActiveTab === "analysis"
+                        ? "bg-white text-teal-700 shadow-xs border border-slate-200/40"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3" /> التحليل الفني والإحصاء
+                  </button>
+                  <button
+                    onClick={() => setReportActiveTab("evidence")}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 ${
+                      reportActiveTab === "evidence"
+                        ? "bg-white text-teal-700 shadow-xs border border-slate-200/40"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5" /> شواهد الإنجاز والصور
+                  </button>
+                  <button
+                    onClick={() => setReportActiveTab("questionnaire")}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 ${
+                      reportActiveTab === "questionnaire"
+                        ? "bg-white text-teal-700 shadow-xs border border-slate-200/40"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <ClipboardList className="w-3.5 h-3.5" /> استبانة قياس الأثر
+                  </button>
+                </div>
+
+                {/* Tab content area */}
+                <div className="flex-grow overflow-y-auto p-4 sm:p-5 space-y-4 text-right">
+                  
+                  {reportActiveTab === "analysis" && (
+                    <div className="space-y-4 animate-fadeIn">
+                      <div className="bg-sky-50/70 p-3.5 rounded-xl border border-sky-100 text-sky-800 text-[11px] sm:text-xs leading-relaxed font-semibold">
+                        استخدم أداة التحليل الإحصائي لتوليد قراءة فنية مفصلة لمسار تطور المؤشرات شهرياً. ستقرأ الصياغة مستويات التقدم الحالية وتصيغها بأسلوب إداري أكاديمي ليوثق بتقريرك.
+                      </div>
+
+                      <button
+                        onClick={handleAutoGenerateAnalysis}
+                        className="w-full bg-teal-600 hover:bg-teal-700 text-white font-black py-3 px-4 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer hover:shadow transition-all shrink-0 active:scale-95"
+                      >
+                        <Sparkles className="w-4 h-4 animate-pulse" /> توليد التحليل الإحصائي الذكي للبيانات
+                      </button>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-black text-slate-700">صياغة التحليل الفني والإحصائي للتقرير:</label>
+                        <textarea
+                          value={technicalAnalysis[program.id] || ""}
+                          onChange={(e) => setTechnicalAnalysis(prev => ({ ...prev, [program.id]: e.target.value }))}
+                          placeholder="اكتب قراءة وتحليل المؤشرات يدوياً، أو انقر على زر التوليد الذكي أعلاه ليقوم النظام بصياغتها لك بالكامل اعتماداً على الأرقام الحالية للبرنامج..."
+                          className="w-full h-80 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs sm:text-sm font-semibold outline-none text-slate-800 resize-none focus:bg-white focus:border-teal-500 transition-all focus:ring-2 focus:ring-teal-100"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {reportActiveTab === "evidence" && (
+                    <div className="space-y-4 animate-fadeIn">
+                      <div className="bg-amber-50/70 p-3.5 rounded-xl border border-amber-100 text-amber-800 text-[11px] sm:text-xs leading-relaxed font-semibold">
+                        أرفق الصور الفوتوغرافية التي توثق تنفيذ فعاليات البرنامج بمدرسة الجشة (مثل لقطات الطابور، أوراق العمل، توقيع العقود). سيتم إدراجها وترميزها بترميز Base64 التلقائي لتصاحب ملفات Word والطباعة أوفلاين بنجاح تام!
+                      </div>
+
+                      <div className="space-y-4">
+                        {(evidenceImages[program.id] || [
+                          { id: "img1", name: "", url: "", caption: "الشاهد الأول: لقطة من الفعاليات المنفذة بمدرسة الجشة بمشاركة الطلاب" },
+                          { id: "img2", name: "", url: "", caption: "الشاهد الثاني: نماذج من مستندات وأوراق العمل بملف إنجاز البرنامج" }
+                        ]).map((img, idx) => (
+                          <div key={img.id} className="relative border border-slate-150 rounded-xl p-4 bg-slate-50/70 shadow-xs space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5">
+                                <span className="w-5 h-5 rounded-full bg-slate-200/80 text-slate-700 flex items-center justify-center text-[10px] font-black">{idx + 1}</span>
+                                {img.id === "img1" || img.id === "img2" ? "شاهد توثيقي أساسي" : "شاهد توثيقي إضافي"}
+                              </span>
+                              {img.id !== "img1" && img.id !== "img2" && (
+                                <button
+                                  onClick={() => deleteEvidenceImage(program.id, img.id)}
+                                  className="text-red-500 hover:text-red-700 text-[11px] font-bold flex items-center gap-0.5 cursor-pointer bg-red-50 hover:bg-red-100 px-2 py-1 rounded-md transition-colors"
+                                >
+                                  <Trash2 className="w-3 h-3" /> حذف الشاهد
+                                </button>
+                              )}
+                            </div>
+                            
+                            {img.url ? (
+                              <div className="relative group rounded-lg overflow-hidden border border-slate-200 bg-white h-32 flex items-center justify-center">
+                                <img src={img.url} className="max-h-full max-w-full object-contain p-1" />
+                                <button
+                                  onClick={() => {
+                                    setEvidenceImages(prev => {
+                                      const list = prev[program.id] || [];
+                                      return {
+                                        ...prev,
+                                        [program.id]: list.map(item => item.id === img.id ? { ...item, url: "", name: "" } : item)
+                                      };
+                                    });
+                                  }}
+                                  className="absolute inset-0 bg-black/60 text-white font-extrabold text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer gap-1"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-300" /> إزالة الصورة المرفقة
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="border border-dashed border-slate-300 hover:border-teal-500 rounded-lg p-5 bg-white text-center cursor-pointer relative group transition-colors">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleEvidenceImageUpload(program.id, img.id, file);
+                                  }}
+                                  className="hidden"
+                                  id={`file-uploader-${img.id}`}
+                                />
+                                <label htmlFor={`file-uploader-${img.id}`} className="cursor-pointer flex flex-col items-center gap-1.5">
+                                  <Camera className="w-7 h-7 text-slate-400 group-hover:scale-110 transition-transform" />
+                                  <span className="text-xs text-slate-600 font-bold">اضغط لرفع صورة الشاهد</span>
+                                  <span className="text-[10px] text-slate-400">يدعم JPG / PNG / WEBP</span>
+                                </label>
+                              </div>
+                            )}
+                            
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-bold text-slate-500">وصف وشرح الشاهد الفني:</label>
+                              <input
+                                type="text"
+                                value={img.caption}
+                                onChange={(e) => handleEvidenceCaptionChange(program.id, img.id, e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold outline-none text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all"
+                                placeholder="مثال: لقطة لطابور الصباح المدرسي أثناء تفعيل البرنامج..."
+                              />
+                            </div>
+                          </div>
+                        ))}
+
+                        <button
+                          onClick={() => addCustomEvidenceImage(program.id)}
+                          className="w-full border-2 border-dashed border-slate-200 hover:border-teal-500 hover:bg-teal-50/20 text-slate-500 hover:text-teal-700 py-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-4 h-4" /> إضافة شاهد أو صورة إضافية للتقرير
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {reportActiveTab === "questionnaire" && (
+                    <div className="space-y-4 animate-fadeIn">
+                      <div className="bg-teal-50/70 p-3 rounded-xl border border-teal-100 text-teal-800 text-[11px] sm:text-xs leading-relaxed font-semibold">
+                        رصد الأثر والرضا لـ 50 مستجيباً (طلاب، معلمين، أولياء أمور). يدعم التبويب الآن التحليل الإحصائي الكمي التلقائي والتحليل التفسيري الكيفي الشامل المضمن بالتقرير النهائي.
+                      </div>
+
+                      {/* Sub Tabs Toggle */}
+                      <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                        <button
+                          onClick={() => setQuestionnaireSubTab("table")}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            questionnaireSubTab === "table"
+                              ? "bg-white text-teal-700 shadow-sm border border-slate-200"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          📋 جدول استجابات البنود الـ 10
+                        </button>
+                        <button
+                          onClick={() => setQuestionnaireSubTab("analysis")}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            questionnaireSubTab === "analysis"
+                              ? "bg-white text-teal-700 shadow-sm border border-slate-200"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          📊 التحليل الإحصائي الكمي والكيفي
+                        </button>
+                      </div>
+
+                      {questionnaireSubTab === "table" ? (
+                        <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                          {(PROGRAM_QUESTIONS[program.id] || fallbackQuestions).slice(0, 10).map((q, idx) => {
+                            const stats = getStableStatsForQuestion(program.id, idx);
+                            return (
+                              <div key={idx} className="bg-slate-50 border border-slate-200/60 rounded-xl p-3 text-right">
+                                <div className="flex items-start gap-2 mb-2">
+                                  <span className="bg-teal-100 text-teal-800 text-[10px] font-bold px-2 py-0.5 rounded-md mt-0.5 shrink-0">
+                                    {idx + 1}
+                                  </span>
+                                  <p className="text-xs sm:text-sm font-black text-slate-800 leading-relaxed">
+                                    {q}
+                                  </p>
+                                </div>
+                                
+                                <div className="space-y-2 mt-3 pl-1">
+                                  {/* Strongly Agree */}
+                                  <div>
+                                    <div className="flex justify-between text-[10px] font-extrabold text-slate-600 mb-1">
+                                      <span>موافق بشدة</span>
+                                      <span className="text-teal-700">{stats.stronglyAgreePct}% ({stats.stronglyAgree} مستجيب)</span>
+                                    </div>
+                                    <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                      <div className="bg-teal-600 h-full rounded-full" style={{ width: `${stats.stronglyAgreePct}%` }}></div>
+                                    </div>
+                                  </div>
+
+                                  {/* Agree */}
+                                  <div>
+                                    <div className="flex justify-between text-[10px] font-extrabold text-slate-600 mb-1">
+                                      <span>موافق</span>
+                                      <span className="text-sky-700">{stats.agreePct}% ({stats.agree} مستجيب)</span>
+                                    </div>
+                                    <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                      <div className="bg-sky-500 h-full rounded-full" style={{ width: `${stats.agreePct}%` }}></div>
+                                    </div>
+                                  </div>
+
+                                  {/* Neutral */}
+                                  <div>
+                                    <div className="flex justify-between text-[10px] font-extrabold text-slate-600 mb-1">
+                                      <span>محايد</span>
+                                      <span className="text-amber-700">{stats.neutralPct}% ({stats.neutral} مستجيب)</span>
+                                    </div>
+                                    <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                      <div className="bg-amber-400 h-full rounded-full" style={{ width: `${stats.neutralPct}%` }}></div>
+                                    </div>
+                                  </div>
+
+                                  {/* Disagree */}
+                                  <div>
+                                    <div className="flex justify-between text-[10px] font-extrabold text-slate-600 mb-1">
+                                      <span>غير موافق</span>
+                                      <span className="text-rose-700">{stats.disagreePct}% ({stats.disagree} مستجيب)</span>
+                                    </div>
+                                    <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                      <div className="bg-rose-400 h-full rounded-full" style={{ width: `${stats.disagreePct}%` }}></div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="space-y-4 max-h-[420px] overflow-y-auto pr-1 text-right">
+                          {(() => {
+                            const analysis = analyzeQuestionnaire(program.id);
+                            const qualitative = getQualitativeAnalysisForProgram(program.id, analysis.top3, analysis.bottom3);
+                            return (
+                              <div className="space-y-4 animate-fadeIn">
+                                {/* Overall KPI Card */}
+                                <div className="bg-gradient-to-br from-teal-500 to-emerald-600 text-white p-4 rounded-xl shadow-xs border border-teal-400">
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-[10px] font-black opacity-90">مؤشر الرضا والقبول الإجمالي للبرنامج</span>
+                                    <span className="bg-teal-900/30 border border-teal-200/20 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full">التحليل الإحصائي 1447هـ</span>
+                                  </div>
+                                  <div className="flex items-baseline gap-2">
+                                    <span className="text-3xl font-black">{analysis.overallApproval}%</span>
+                                    <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-md text-emerald-50">مستوى أثر ممتاز ومثبت</span>
+                                  </div>
+                                  <p className="text-[10px] opacity-85 leading-relaxed mt-2">
+                                    يمثل هذا المؤشر متوسط خيارات الموافقين (بشدة + عادي) لكافة الأسئلة الإرشادية البالغة 10 بنود التي تم طرحها على عينة دراسة الأثر المكونة من 50 مستجيباً.
+                                  </p>
+                                </div>
+
+                                {/* Response Averages Split */}
+                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                  <h4 className="text-xs font-black text-slate-700 mb-2.5">📊 توزيع متوسط الاستجابات لكافة البنود</h4>
+                                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                    <div className="bg-white border border-slate-100 p-2 rounded-lg text-center">
+                                      <span className="text-[9px] font-extrabold text-slate-500 block mb-0.5">موافق بشدة</span>
+                                      <span className="text-sm font-black text-teal-700">{analysis.avgStronglyAgree}%</span>
+                                    </div>
+                                    <div className="bg-white border border-slate-100 p-2 rounded-lg text-center">
+                                      <span className="text-[9px] font-extrabold text-slate-500 block mb-0.5">موافق</span>
+                                      <span className="text-sm font-black text-sky-700">{analysis.avgAgree}%</span>
+                                    </div>
+                                    <div className="bg-white border border-slate-100 p-2 rounded-lg text-center">
+                                      <span className="text-[9px] font-extrabold text-slate-500 block mb-0.5">محايد</span>
+                                      <span className="text-sm font-black text-amber-700">{analysis.avgNeutral}%</span>
+                                    </div>
+                                    <div className="bg-white border border-slate-100 p-2 rounded-lg text-center">
+                                      <span className="text-[9px] font-extrabold text-slate-500 block mb-0.5">غير موافق</span>
+                                      <span className="text-sm font-black text-rose-700">{analysis.avgDisagree}%</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Top Strengths & Opportunities */}
+                                <div className="grid grid-cols-1 gap-3">
+                                  {/* Top 3 (Strengths) */}
+                                  <div className="bg-teal-50/50 border border-teal-100/80 p-3 rounded-xl">
+                                    <h5 className="text-[11px] font-black text-teal-850 flex items-center gap-1 mb-2">
+                                      <span className="w-2 h-2 rounded-full bg-teal-500 shrink-0 animate-ping"></span>
+                                      ⭐ البنود الأعلى تقييماً (نقاط التميز)
+                                    </h5>
+                                    <div className="space-y-2">
+                                      {analysis.top3.map((item, idx) => (
+                                        <div key={idx} className="bg-white p-2.5 rounded-lg border border-teal-100/30 text-xs">
+                                          <div className="flex justify-between font-black text-[10px] text-teal-900 mb-0.5">
+                                            <span>بند رقم {item.index}</span>
+                                            <span>{item.approvalPct}% موافقة</span>
+                                          </div>
+                                          <p className="text-[10px] text-slate-600 leading-normal font-black">{item.question}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Bottom 3 (Opportunities) */}
+                                  <div className="bg-rose-50/30 border border-rose-100/60 p-3 rounded-xl">
+                                    <h5 className="text-[11px] font-black text-rose-850 flex items-center gap-1 mb-2">
+                                      <span className="w-2 h-2 rounded-full bg-rose-450 shrink-0"></span>
+                                      🎯 البنود الأقل موافقة (فرص التطوير المستهدفة)
+                                    </h5>
+                                    <div className="space-y-2">
+                                      {analysis.bottom3.map((item, idx) => (
+                                        <div key={idx} className="bg-white p-2.5 rounded-lg border border-rose-100/10 text-xs">
+                                          <div className="flex justify-between font-black text-[10px] text-rose-900 mb-0.5">
+                                            <span>بند رقم {item.index}</span>
+                                            <span>{item.approvalPct}% موافقة</span>
+                                          </div>
+                                          <p className="text-[10px] text-slate-600 leading-normal font-black">{item.question}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Qualitative Thematic Analysis */}
+                                <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
+                                  <h4 className="text-xs font-black text-slate-800 border-b border-slate-100 pb-1.5">
+                                    📝 ثانياً: التحليل التفسيري الكيفي (Qualitative)
+                                  </h4>
+                                  <div className="text-[11px] text-slate-600 leading-relaxed space-y-2 text-justify">
+                                    <p dangerouslySetInnerHTML={{ __html: qualitative.dimension1 }} />
+                                    <p dangerouslySetInnerHTML={{ __html: qualitative.dimension2 }} />
+                                    <p dangerouslySetInnerHTML={{ __html: qualitative.dimension3 }} />
+                                  </div>
+
+                                  {/* Dynamic General Recommendation */}
+                                  <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-[10.5px] text-emerald-800 leading-relaxed">
+                                    <strong className="block text-emerald-950 mb-1">💡 التوصية الكيفية العامة لدعم الأثر واستدامته:</strong>
+                                    {qualitative.conclusion}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
+              </div>
+
+              {/* Left Column: Real-time Live Preview & Actions Workspace (58% width) */}
+              <div className="flex-grow flex flex-col h-full bg-white rounded-2xl border border-slate-200/50 shadow-sm overflow-hidden min-h-0">
+                <div className="bg-slate-50 border-b border-slate-100 px-4 py-2 flex items-center justify-between shrink-0">
+                  <span className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                    المعاينة الحية للتقرير الفني الشامل (تتحدث فورياً مع أي تعديل)
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-bold">نموذج وزارة التعليم المعتمد</span>
+                </div>
+
+                <div className="flex-grow p-4 overflow-y-auto bg-slate-100/40">
+                  <div id="technical-report-preview" className="bg-white rounded-xl shadow-md p-4 sm:p-8 max-w-[800px] mx-auto overflow-x-auto select-none scale-95 sm:scale-100 origin-top">
+                    <div dangerouslySetInnerHTML={{ __html: compileTechnicalReportHtml() }} />
+                  </div>
+                </div>
+              </div>
+
+            </div>
+            
+            {/* Modal Actions Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row sm:justify-end gap-2 shrink-0">
+              <button
+                onClick={handlePrintKpiChart}
+                className="bg-purple-600 text-white px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer hover:shadow-md"
+              >
+                <TrendingUp className="w-4 h-4" /> تصدير رسم مؤشرات الأداء (PDF مستقل)
+              </button>
+              <button
+                onClick={handlePrint}
+                className="bg-teal-600 text-white px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer hover:shadow-md"
+              >
+                <Printer className="w-4 h-4" /> طباعة / تصدير PDF الشامل
+              </button>
+              <button
+                onClick={() => exportWordFile(compileTechnicalReportHtml(true), `تقرير_برنامج_${program.title}`)}
+                className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer hover:shadow-md"
+              >
+                <FileText className="w-4 h-4" /> تصدير كملف Word ملوّن بالشواهد
+              </button>
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="bg-slate-200 text-slate-700 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold hover:bg-slate-300 transition-colors cursor-pointer text-center"
+              >
+                إغلاق
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 2. ADVISOR (CHAT) MODAL */}
+      {showAdvisorModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col h-[85vh] max-h-[85vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-cyan-50 shrink-0">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-cyan-800 animate-pulse" />
+                <h3 className="font-extrabold text-cyan-900 text-sm sm:text-base flex items-center gap-1.5">
+                  مستشار التوجيه الطلابي والإداري الذكي 
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${aiActive ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+                    {aiActive ? "متصل بالذكاء الاصطناعي" : "وضع أوفلاين"}
+                  </span>
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowAdvisorModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-xl p-1.5 cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="flex-grow flex flex-col overflow-hidden bg-slate-50 min-h-0">
+              {/* Message History */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+                {chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-fadeIn`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-2xl p-4 text-xs sm:text-sm leading-relaxed shadow-sm ${
+                        msg.role === "user"
+                          ? "bg-cyan-600 text-white rounded-tl-none font-medium"
+                          : "bg-white text-slate-800 border border-slate-200/60 rounded-tr-none font-medium"
+                      }`}
+                    >
+                      {msg.role === "model" ? (
+                        <div className="space-y-1">
+                          {renderMarkdown(msg.content)}
+                        </div>
+                      ) : (
+                        <p>{msg.content}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                
+                {isChatLoading && (
+                  <div className="flex justify-start animate-pulse">
+                    <div className="bg-white border border-slate-200 rounded-2xl rounded-tr-none p-4 max-w-[80%] flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-cyan-500 animate-bounce" />
+                      <div className="w-2 h-2 rounded-full bg-cyan-500 animate-bounce delay-100" />
+                      <div className="w-2 h-2 rounded-full bg-cyan-500 animate-bounce delay-200" />
+                      <span className="text-xs text-slate-400 font-bold mr-1">جاري كتابة الرد التربوي...</span>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatBottomRef} />
+              </div>
+
+              {/* Chat Input */}
+              <div className="p-3 bg-white border-t border-slate-100 flex gap-2 shrink-0">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && sendAdvisorMessage()}
+                  placeholder="اسأل عن (غياب الطالب، عقود السلوك، تنمر أو قواعد المواظبة)..."
+                  className="flex-grow bg-slate-100 border-none rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-cyan-500 outline-none text-slate-800 font-bold"
+                />
+                <button
+                  onClick={sendAdvisorMessage}
+                  disabled={isChatLoading || !chatInput.trim()}
+                  className="bg-cyan-600 text-white p-2.5 rounded-xl hover:bg-cyan-700 transition-colors cursor-pointer flex items-center justify-center shrink-0 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-5 h-5 transform rotate-180" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. CASE STUDY PLAN MODAL */}
+      {showCaseStudyModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden flex flex-col h-[92vh] max-h-[92vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50 shrink-0">
+              <h3 className="font-extrabold text-indigo-900 flex items-center gap-2 text-sm sm:text-base">
+                <Brain className="w-5 h-5 text-indigo-600" /> منشئ خطط دراسة الحالة والدعم العلاجي 
+              </h3>
+              <button
+                onClick={() => {
+                  setShowCaseStudyModal(false);
+                  setCaseStudyResult("");
+                }}
+                className="text-slate-400 hover:text-slate-600 text-xl p-1.5 cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="flex-grow overflow-y-auto p-4 sm:p-6 bg-slate-50 flex flex-col lg:flex-row gap-5 min-h-0 text-right">
+              {/* Form panel */}
+              <div className="lg:w-1/3 bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-4 shrink-0">
+                <h4 className="font-bold text-slate-800 text-xs sm:text-sm border-b pb-2">بيانات ومظاهر حالة الطالب</h4>
+                
+                {/* Pick student from Excel if available */}
+                {students.length > 0 && (
+                  <div>
+                    <label className="block text-[11px] font-black text-teal-700 mb-1">اختر من كشف نور المرفوع:</label>
+                    <select
+                      onChange={(e) => {
+                        const idx = Number(e.target.value);
+                        if (idx >= 0) {
+                          setCaseStudyName(students[idx].name);
+                          setCaseStudyClass(students[idx].className);
+                        }
+                      }}
+                      className="w-full bg-teal-50/50 border border-teal-100 rounded-lg p-2 text-xs font-bold outline-none cursor-pointer text-teal-900"
+                    >
+                      <option value="-1">-- اختر طالباً --</option>
+                      {students.map((st, i) => (
+                        <option key={i} value={i}>{st.name} ({st.className})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">اسم الطالب:</label>
+                  <input
+                    type="text"
+                    value={caseStudyName}
+                    onChange={(e) => setCaseStudyName(e.target.value)}
+                    placeholder="اكتب اسم الطالب..."
+                    className="w-full bg-slate-100 border-none rounded-lg p-2.5 text-xs sm:text-sm font-bold outline-none text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">الصف والفصل الدراسي:</label>
+                  <input
+                    type="text"
+                    value={caseStudyClass}
+                    onChange={(e) => setCaseStudyClass(e.target.value)}
+                    placeholder="مثال: أول متوسط / ب..."
+                    className="w-full bg-slate-100 border-none rounded-lg p-2.5 text-xs sm:text-sm font-bold outline-none text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">نوع المشكلة الأساسية:</label>
+                  <select
+                    value={caseStudyType}
+                    onChange={(e) => setCaseStudyType(e.target.value)}
+                    className="w-full bg-slate-100 border-none rounded-lg p-2.5 text-xs sm:text-sm font-bold outline-none cursor-pointer text-slate-800"
+                  >
+                    <option value="تأخر دراسي">تأخر وتعثر دراسي مستمر</option>
+                    <option value="تنمر">سلوك تنمر مدرسي ضد زملائه</option>
+                    <option value="غياب وتأخر متكرر">غياب وتأخر متكرر عن الطابور</option>
+                    <option value="عدوانية لفظية">عدوانية وتطاول لفظي في ساحات الفسحة</option>
+                    <option value="فرط حركة وتشتت">فرط حركة وصعوبة انتباه بالصف</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">ملاحظات أو أعراض إضافية:</label>
+                  <textarea
+                    rows={3}
+                    value={caseStudyNotes}
+                    onChange={(e) => setCaseStudyNotes(e.target.value)}
+                    placeholder="أي ملاحظة تلاحظها بسلوك الطالب..."
+                    className="w-full bg-slate-100 border-none rounded-lg p-2 text-xs sm:text-sm font-semibold outline-none resize-none text-slate-800"
+                  />
+                </div>
+
+                <button
+                  onClick={generateCaseStudy}
+                  disabled={isCaseStudyLoading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl text-xs sm:text-sm font-extrabold shadow transition-all flex justify-center items-center gap-2 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {isCaseStudyLoading ? "جاري بناء الخطة وتعديلها..." : "توليد الخطة الإرشادية الذكية"}
+                </button>
+              </div>
+
+              {/* Display Result panel */}
+              <div className="flex-1 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col justify-between min-h-0 overflow-hidden">
+                <div className="overflow-y-auto pr-1 flex-grow bg-slate-50/50 rounded-xl border border-slate-100 p-2 sm:p-4">
+                  {caseStudyResult ? (
+                    <div id="case-study-print-target" className="p-1 max-w-[800px] mx-auto">
+                      <div dangerouslySetInnerHTML={{ __html: compileCaseStudyReportHtml(caseStudyResult) }} />
+                    </div>
+                  ) : (
+                    <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-slate-400 gap-2">
+                      <Brain className="w-12 h-12 text-slate-300 animate-bounce" />
+                      <p className="font-bold text-xs sm:text-sm">لم يتم توليد أي خطة دراسة حالة بعد.</p>
+                      <p className="text-[10px] text-slate-400">املأ البيانات بالجانب الأيمن واضغط زر التوليد لبناء الخطة.</p>
+                    </div>
+                  )}
+                </div>
+
+                {caseStudyResult && (
+                  <div className="border-t border-slate-100 pt-3 mt-3 flex flex-wrap gap-2 justify-end shrink-0">
+                    <button
+                      onClick={exportCaseStudyPDF}
+                      disabled={isPdfLoading}
+                      className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      {isPdfLoading ? "جاري تصدير PDF..." : "تحميل PDF مباشر"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const content = compileCaseStudyReportHtml(caseStudyResult);
+                        const printWindow = window.open('', '_blank');
+                        if (printWindow) {
+                          printWindow.document.write(`
+                            <html>
+                              <head>
+                                <title>خطة دراسة حالة - ${caseStudyName || "طالب"}</title>
+                                <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+                                <style>
+                                  body { font-family: 'Tajawal', sans-serif; background-color: white; margin: 0; padding: 20px; }
+                                  @media print {
+                                    body { margin: 10mm; }
+                                    p, li, tr, td, table, blockquote, pre {
+                                      page-break-inside: avoid !important;
+                                      break-inside: avoid !important;
+                                    }
+                                    h1, h2, h3, h4, h5, h6 {
+                                      page-break-after: avoid !important;
+                                      break-after: avoid !important;
+                                    }
+                                  }
+                                </style>
+                              </head>
+                              <body dir="rtl">
+                                ${content}
+                                <script>
+                                  window.onload = function() {
+                                    window.print();
+                                    setTimeout(() => { window.close(); }, 500);
+                                  }
+                                </script>
+                              </body>
+                            </html>
+                          `);
+                          printWindow.document.close();
+                        }
+                      }}
+                      className="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> طباعة الملون
+                    </button>
+                    <button
+                      onClick={() => {
+                        const content = compileCaseStudyReportHtml(caseStudyResult);
+                        exportWordFile(content, `خطة_علاجية_${caseStudyName || "طالب"}`);
+                      }}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> تصدير Word الملون
+                    </button>
+                    <button
+                      onClick={() => setCaseStudyResult("")}
+                      className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-200 cursor-pointer transition-colors"
+                    >
+                      مسح
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. BROADCAST MODEL MODAL */}
+      {showBroadcastModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden flex flex-col h-[92vh] max-h-[92vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-sky-50 shrink-0">
+              <h3 className="font-extrabold text-sky-900 flex items-center gap-2 text-sm sm:text-base">
+                <Wand2 className="w-5 h-5 text-sky-600" /> معد ومحفز الإذاعة الصباحية (شاهد إنجاز لـ 4 طلاب)
+              </h3>
+              <button
+                onClick={() => {
+                  setShowBroadcastModal(false);
+                  setBroadcastResult("");
+                }}
+                className="text-slate-400 hover:text-slate-600 text-xl p-1.5 cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="flex-grow overflow-y-auto p-4 sm:p-6 bg-slate-50 flex flex-col lg:flex-row gap-5 min-h-0 text-right">
+              {/* Form */}
+              <div className="lg:w-1/3 bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-4 shrink-0 flex flex-col justify-between">
+                <div className="space-y-4">
+                  <h4 className="font-bold text-slate-800 text-xs sm:text-sm border-b pb-2">تفاصيل موضوع الإذاعة</h4>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">موضوع الإذاعة المدرسية:</label>
+                    <input
+                      type="text"
+                      value={broadcastTopic}
+                      onChange={(e) => setBroadcastTopic(e.target.value)}
+                      placeholder="مثال: الانضباط والحد من الغياب، الرفق، الابتسامة..."
+                      className="w-full bg-slate-100 border-none rounded-lg p-2.5 text-xs sm:text-sm font-bold outline-none text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">المرحلة الدراسية المستهدفة:</label>
+                    <select
+                      value={broadcastGrade}
+                      onChange={(e) => setBroadcastGrade(e.target.value)}
+                      className="w-full bg-slate-100 border-none rounded-lg p-2.5 text-xs sm:text-sm font-bold outline-none cursor-pointer text-slate-800"
+                    >
+                      <option value="المرحلة الابتدائية">المرحلة الابتدائية (مبسط ومبهج)</option>
+                      <option value="المرحلة المتوسطة">المرحلة المتوسطة (توجيهي وقيمي)</option>
+                      <option value="المرحلة الثانوية">المرحلة الثانوية (فكري ورصين)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  onClick={generateBroadcast}
+                  disabled={isBroadcastLoading || !broadcastTopic.trim()}
+                  className="w-full bg-sky-600 hover:bg-sky-700 text-white py-3 rounded-xl text-xs sm:text-sm font-extrabold shadow transition-all flex justify-center items-center gap-2 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {isBroadcastLoading ? "جاري صياغة الكلمات الإذاعية..." : "توليد نص الإذاعة المدرسية"}
+                </button>
+              </div>
+
+              {/* Result display */}
+              <div className="flex-1 bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col justify-between min-h-0">
+                <div className="overflow-y-auto pr-1 flex-grow">
+                  {broadcastResult ? (
+                    <div id="broadcast-print-target" className="p-2">
+                      {renderMarkdown(broadcastResult)}
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+                      <Wand2 className="w-12 h-12 text-slate-300 animate-bounce" />
+                      <p className="font-bold text-xs sm:text-sm">لم يتم إعداد نص الإذاعة بعد.</p>
+                      <p className="text-[10px] text-slate-400">اكتب موضوع الإذاعة واضغط زر التوليد لتقوم بتوزيع الكشوف على الطلاب.</p>
+                    </div>
+                  )}
+                </div>
+
+                {broadcastResult && (
+                  <div className="border-t border-slate-100 pt-3 mt-3 flex flex-wrap gap-2 justify-end shrink-0">
+                    <button
+                      onClick={() => {
+                        const content = document.getElementById("broadcast-print-target")?.innerHTML || "";
+                        const printWindow = window.open('', '_blank');
+                        printWindow?.document.write(`<html><head><title>الإذاعة المدرسية</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet"></head><body dir="rtl" style="font-family:'Tajawal',sans-serif;padding:30px;">${content}</body></html>`);
+                        printWindow?.document.close();
+                        printWindow?.print();
+                      }}
+                      className="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> طباعة
+                    </button>
+                    <button
+                      onClick={() => {
+                        const content = document.getElementById("broadcast-print-target")?.innerHTML || "";
+                        exportWordFile(content, `نص_الإذاعة_حول_${broadcastTopic}`);
+                      }}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> تصدير Word
+                    </button>
+                    <button
+                      onClick={() => setBroadcastResult("")}
+                      className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-200 cursor-pointer"
+                    >
+                      مسح
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. STUDENTS MANAGE EXCEL MODAL */}
+      {showStudentsModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+              <h3 className="font-extrabold text-slate-900 flex items-center gap-2 text-sm sm:text-base">
+                <FileSpreadsheet className="w-5 h-5 text-teal-600" /> إدارة كشوفات طلاب مدرسة الجشة (نظام نور)
+              </h3>
+              <button
+                onClick={() => setShowStudentsModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-xl p-1.5 cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto bg-white flex flex-col gap-5 text-right">
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-800 text-xs sm:text-sm leading-relaxed">
+                ارفع كشف الطلاب المصدر من نظام نور بصيغة Excel (يحتوي على الأقل على أسماء الطلاب في العمود الأول، والفصول في العمود الثالث). سيتم ربط الأسماء تلقائياً في مُعد دراسة الحالة لسهولة العمل!
+              </div>
+
+              {/* Drag and Drop Box */}
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-8 hover:border-teal-500 transition-colors bg-slate-50/50 group cursor-pointer ${
+                  isDragOver ? "border-teal-500 bg-teal-50/20" : "border-slate-300"
+                }`}
+              >
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  className="hidden"
+                  id="students-excel-uploader"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleExcelImport(file);
+                  }}
+                />
+                <label htmlFor="students-excel-uploader" className="cursor-pointer flex flex-col items-center gap-3">
+                  <div className="w-14 h-14 bg-teal-100 text-teal-700 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                    <Upload className="w-7 h-7" />
+                  </div>
+                  <span className="font-black text-xs sm:text-sm text-slate-700">اضغط لرفع كشف Excel أو اسحب وألقِ الملف هنا</span>
+                  <span className="text-[10px] text-slate-400">يدعم صيغ .xlsx / .xls المعتمدة بنور</span>
+                </label>
+              </div>
+
+              {/* List imported students */}
+              {students.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <h4 className="font-bold text-slate-800 text-xs sm:text-sm">الطلاب المسجلون بقاعدة البيانات ({students.length} طالباً)</h4>
+                    <button
+                      onClick={() => {
+                        if (confirm("هل تريد تصفير كشوف الطلاب نهائياً؟")) {
+                          setStudents([]);
+                          localStorage.removeItem("guidance_students");
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700 flex items-center gap-1 text-xs font-bold cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> تصفير الكشف
+                    </button>
+                  </div>
+                  
+                  <div className="max-h-60 overflow-y-auto pr-1 space-y-2">
+                    {students.map((st, idx) => (
+                      <div key={idx} className="p-3 rounded-2xl border border-slate-100 flex justify-between items-center hover-3d-student bg-white/40 transition-all text-xs sm:text-sm">
+                        <span className="font-bold text-slate-800">{idx + 1}. {st.name}</span>
+                        <span className="bg-teal-50 text-teal-800 px-3 py-1 rounded-xl text-xs font-black border border-teal-100">{st.className}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end shrink-0">
+              <button
+                onClick={() => setShowStudentsModal(false)}
+                className="bg-slate-200 text-slate-700 px-5 py-2 rounded-xl text-sm font-bold hover:bg-slate-300 cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. PARENTS VISITS LOG MODAL */}
+      {showVisitsModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col h-[90vh] max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-emerald-50 shrink-0">
+              <h3 className="font-extrabold text-emerald-900 flex items-center gap-2 text-sm sm:text-base">
+                <Users className="w-5 h-5 text-emerald-600" /> سجل زيارات أولياء الأمور - مدرسة الجشة لعام 1447هـ
+              </h3>
+              <button
+                onClick={() => setShowVisitsModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-xl p-1.5 cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto bg-white flex flex-col gap-6 text-right flex-grow">
+              
+              {/* Introduction Banner */}
+              <div className="bg-emerald-50/50 p-3.5 rounded-xl border border-emerald-100 text-emerald-900 text-xs sm:text-sm leading-relaxed font-semibold">
+                يسمح هذا السجل للموجه الطلابي برصد وتوثيق زيارات أولياء الأمور للمدرسة، مع تتبع أسباب الزيارة وتوصيات الاجتماع. يتم حفظ البيانات محلياً لدعم مرجعيتك في التقرير الإرشادي.
+              </div>
+
+              {/* Statistics Row */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80">
+                <h4 className="text-xs sm:text-sm font-black text-slate-800 mb-3 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-emerald-600" /> إحصائية الزيارات الشهرية والتحليل البياني
+                </h4>
+                
+                {visits.length === 0 ? (
+                  <p className="text-xs text-slate-400">لا توجد زيارات مسجلة حالياً لعرض الإحصائيات.</p>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    {/* Monthly counters grid (7 cols) */}
+                    <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {/* Total visits card */}
+                      <div className="bg-emerald-600 text-white p-3 rounded-xl flex flex-col justify-center items-center shadow-xs">
+                        <span className="text-[10px] font-bold opacity-90">إجمالي الزيارات</span>
+                        <span className="text-2xl font-black">{visits.length}</span>
+                      </div>
+
+                      {/* Monthly counters */}
+                      {getMonthlyStats().map((st, idx) => (
+                        <div key={idx} className="bg-white border border-slate-200 p-3 rounded-xl flex flex-col justify-center items-center">
+                          <span className="text-[10px] font-extrabold text-slate-500">{st.label}</span>
+                          <span className="text-lg font-black text-slate-800 mt-1">{st.count} {st.count === 1 ? 'زيارة' : 'زيارات'}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Recharts BarChart container (5 cols) */}
+                    <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-3 flex flex-col h-[180px] min-h-[180px]">
+                      <span className="text-[10px] font-black text-slate-500 mb-2 text-right">مخطط توزيع الزيارات</span>
+                      <div className="w-full h-full flex-1 min-h-0" style={{ direction: 'ltr' }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={getMonthlyStats().map(st => ({ label: st.label, count: st.count }))}
+                            margin={{ top: 5, right: 5, left: -25, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis
+                              dataKey="label"
+                              tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }}
+                              axisLine={false}
+                              tickLine={false}
+                            />
+                            <YAxis
+                              tick={{ fontSize: 9, fill: '#64748b' }}
+                              axisLine={false}
+                              tickLine={false}
+                              allowDecimals={false}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                direction: 'rtl',
+                                fontFamily: 'Tajawal, sans-serif',
+                                fontSize: '11px',
+                                borderRadius: '8px',
+                                border: '1px solid #e2e8f0',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                              }}
+                              formatter={(value: any) => [`${value} زيارة`, 'عدد الزيارات']}
+                            />
+                            <Bar dataKey="count" fill="#059669" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Grid Form and List */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                
+                {/* Form column (5 cols) */}
+                <form onSubmit={handleAddVisit} className="lg:col-span-5 bg-slate-50/75 border border-slate-200/60 p-4 rounded-2xl space-y-4">
+                  <h4 className="text-xs sm:text-sm font-black text-slate-800 border-b pb-2 flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-emerald-600" /> تسجيل زيارة جديدة لولي أمر
+                  </h4>
+
+                  {/* Parent Name */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-black text-slate-600">اسم ولي الأمر <span className="text-red-500">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      value={visitParentName}
+                      onChange={(e) => setVisitParentName(e.target.value)}
+                      placeholder="مثال: صالح بن علي الجري"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+
+                  {/* Student Quick-Select from Database */}
+                  {students.length > 0 ? (
+                    <div className="bg-emerald-50/70 p-3 rounded-2xl border border-emerald-100 space-y-1.5 shadow-xs">
+                      <label className="block text-[11px] font-black text-emerald-800 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                        اختر الطالب من كشف الطلاب المرفوع:
+                      </label>
+                      <select
+                        onChange={(e) => {
+                          const idx = Number(e.target.value);
+                          if (idx >= 0) {
+                            setVisitStudentName(students[idx].name);
+                            setVisitClass(students[idx].className);
+                            // Set a polite draft for parent's name if empty
+                            if (!visitParentName.trim()) {
+                              setVisitParentName(`ولي أمر الطالب: ${students[idx].name}`);
+                            }
+                          }
+                        }}
+                        className="w-full bg-white border border-emerald-300 text-emerald-950 rounded-xl px-3 py-2 text-xs font-bold outline-none cursor-pointer focus:ring-2 focus:ring-emerald-500 transition-shadow"
+                      >
+                        <option value="-1">-- اضغط هنا للاختيار الفوري من القائمة --</option>
+                        {students.map((st, i) => (
+                          <option key={i} value={i}>
+                            {st.name} ({st.className})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[9.5px] text-emerald-700 font-bold">💡 عند الاختيار، سيتم تعبئة الحقول والاسم والصف تلقائياً للسرعة والدقة.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-100 p-2.5 rounded-xl border border-slate-200 text-slate-500 text-[10px] font-bold leading-normal">
+                      ℹ️ تلميح: لم تقم برفع كشف الطلاب بعد. يمكنك رفع كشف نور بملف Excel في لوحة كشوف الطلاب بالمدرسة لتفعيل الاختيار السريع للطلاب وتجنب الأخطاء الإملائية.
+                    </div>
+                  )}
+
+                  {/* Student Name */}
+                  <div className="space-y-1 relative">
+                    <label className="block text-[11px] font-black text-slate-600">اسم الطالب</label>
+                    <input
+                      type="text"
+                      value={visitStudentName}
+                      onChange={(e) => setVisitStudentName(e.target.value)}
+                      placeholder="مثال: عبدالرحمن صالح الجري"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                    {students.length > 0 && visitStudentName.trim() && (
+                      <div className="absolute z-10 w-full bg-white border rounded-xl shadow-lg mt-1 max-h-32 overflow-y-auto divide-y divide-slate-100">
+                        {students.filter(st => st.name.includes(visitStudentName)).map((st, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setVisitStudentName(st.name);
+                              setVisitClass(st.className);
+                            }}
+                            className="w-full text-right p-2.5 text-xs font-bold hover:bg-slate-50 text-slate-700 block transition-colors cursor-pointer"
+                          >
+                            {st.name} ({st.className})
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Class Name */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-black text-slate-600">الصف/الفصل</label>
+                    <input
+                      type="text"
+                      value={visitClass}
+                      onChange={(e) => setVisitClass(e.target.value)}
+                      placeholder="مثال: الصف الأول الابتدائي"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+
+                  {/* Purpose */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-black text-slate-600">الغرض من الزيارة <span className="text-red-500">*</span></label>
+                    <select
+                      required
+                      value={visitPurpose}
+                      onChange={(e) => setVisitPurpose(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="">-- اختر الغرض --</option>
+                      <option value="استفسار عن مستوى التحصيل الدراسي والدعم الأكاديمي">استفسار عن مستوى التحصيل الدراسي والدعم الأكاديمي</option>
+                      <option value="دراسة ومتابعة حالة سلوكية">دراسة ومتابعة حالة سلوكية</option>
+                      <option value="علاج مشكلة الغياب والتأخر الصباحي">علاج مشكلة الغياب والتأخر الصباحي</option>
+                      <option value="استفسار عن برنامج الأسبوع التمهيدي والتهيئة">استفسار عن برنامج الأسبوع التمهيدي والتهيئة</option>
+                      <option value="شراكة مجتمعية، مجالس أولياء الأمور أو تكريم">شراكة مجتمعية، مجالس أولياء الأمور أو تكريم</option>
+                      <option value="مراجعة عامة أو استلام إشعارات الوزارة">مراجعة عامة أو استلام إشعارات الوزارة</option>
+                    </select>
+                  </div>
+
+                  {/* Visit Date */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-black text-slate-600">التاريخ</label>
+                    <input
+                      type="date"
+                      value={visitDate}
+                      onChange={(e) => setVisitDate(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+
+                  {/* Visit Status */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-black text-slate-600">حالة الزيارة <span className="text-red-500">*</span></label>
+                    <select
+                      value={visitStatus}
+                      onChange={(e) => setVisitStatus(e.target.value as any)}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none cursor-pointer"
+                    >
+                      <option value="تمت">تمت الزيارة ✅</option>
+                      <option value="مجدولة">مجدولة / قادمة ⏳</option>
+                      <option value="ملغاة">ملغاة ❌</option>
+                    </select>
+                  </div>
+
+                  {/* Counselor Notes */}
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-black text-slate-600">الإجراء المتخذ / مرئيات وتوصيات الموجه</label>
+                    <textarea
+                      value={visitNotes}
+                      onChange={(e) => setVisitNotes(e.target.value)}
+                      placeholder="اكتب التوصيات أو الإجراء المتخذ هنا..."
+                      rows={3}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2.5 rounded-xl text-xs sm:text-sm transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5 animate-pulse hover:animate-none"
+                  >
+                    <Plus className="w-4 h-4" /> تسجيل الزيارة وحفظ البيانات
+                  </button>
+                </form>
+
+                {/* List column (7 cols) */}
+                <div className="lg:col-span-7 space-y-4">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b pb-2">
+                    <h4 className="text-xs sm:text-sm font-black text-slate-800">سجل الزيارات المؤرشفة ({visits.length} سجلات)</h4>
+                    
+                    {/* Search Input */}
+                    <div className="relative w-full sm:w-64 shrink-0">
+                      <input
+                        type="text"
+                        value={visitSearchQuery}
+                        onChange={(e) => setVisitSearchQuery(e.target.value)}
+                        placeholder="ابحث باسم ولي الأمر، الطالب، الغرض..."
+                        className="w-full bg-slate-100 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                      />
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    </div>
+                  </div>
+
+                  {/* Monthly Filters Row */}
+                  <div className="bg-indigo-50/60 p-3 rounded-2xl border border-indigo-100/80 space-y-2.5 shadow-xs">
+                    <h5 className="text-[11px] font-black text-indigo-900 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+                      خيارات تصفية وتقارير الأشهر:
+                    </h5>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {/* Single Month Select */}
+                      <div className="space-y-1">
+                        <label className="block text-[9.5px] font-black text-slate-500">تصفية بشهر محدد</label>
+                        <select
+                          value={filterSingleMonth}
+                          onChange={(e) => {
+                            setFilterSingleMonth(e.target.value);
+                            if (e.target.value) {
+                              setFilterMonthFrom("");
+                              setFilterMonthTo("");
+                            }
+                          }}
+                          className="w-full bg-white border border-indigo-200 text-indigo-950 rounded-xl px-2 py-1.5 text-[10.5px] font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                        >
+                          <option value="">-- كل الأشهر --</option>
+                          {AVAILABLE_MONTHS.map((m) => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Range From */}
+                      <div className="space-y-1">
+                        <label className="block text-[9.5px] font-black text-slate-500">نطاق من شهر</label>
+                        <select
+                          value={filterMonthFrom}
+                          onChange={(e) => {
+                            setFilterMonthFrom(e.target.value);
+                            if (e.target.value) {
+                              setFilterSingleMonth("");
+                            }
+                          }}
+                          className="w-full bg-white border border-indigo-200 text-indigo-950 rounded-xl px-2 py-1.5 text-[10.5px] font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                        >
+                          <option value="">-- البداية --</option>
+                          {AVAILABLE_MONTHS.map((m) => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Range To */}
+                      <div className="space-y-1">
+                        <label className="block text-[9.5px] font-black text-slate-500">إلى شهر</label>
+                        <select
+                          value={filterMonthTo}
+                          onChange={(e) => {
+                            setFilterMonthTo(e.target.value);
+                            if (e.target.value) {
+                              setFilterSingleMonth("");
+                            }
+                          }}
+                          className="w-full bg-white border border-indigo-200 text-indigo-950 rounded-xl px-2 py-1.5 text-[10.5px] font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                        >
+                          <option value="">-- النهاية --</option>
+                          {AVAILABLE_MONTHS.map((m) => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {(filterSingleMonth || filterMonthFrom || filterMonthTo) && (
+                      <div className="flex justify-between items-center bg-white/90 px-3 py-1.5 rounded-xl border border-indigo-100 text-[10px] shadow-xs">
+                        <span className="text-indigo-800 font-bold flex items-center gap-1">
+                          ⚡ تم تفعيل تصفية الأشهر (يؤثر على المعروض والمستند المصدّر)
+                        </span>
+                        <button
+                          onClick={() => {
+                            setFilterSingleMonth("");
+                            setFilterMonthFrom("");
+                            setFilterMonthTo("");
+                          }}
+                          className="text-rose-600 hover:text-rose-800 font-black cursor-pointer bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100 transition-colors"
+                        >
+                          إلغاء التصفية ❌
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Visits Feed */}
+                  <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                    {(() => {
+                      const filteredVisits = visits.filter(v => {
+                        // Month filter
+                        if (v.date) {
+                          const parts = v.date.split("-");
+                          if (parts.length >= 2) {
+                            const yMonth = `${parts[0]}-${parts[1]}`;
+                            if (filterSingleMonth && yMonth !== filterSingleMonth) {
+                              return false;
+                            }
+                            if (filterMonthFrom && yMonth < filterMonthFrom) {
+                              return false;
+                            }
+                            if (filterMonthTo && yMonth > filterMonthTo) {
+                              return false;
+                            }
+                          }
+                        }
+
+                        // Search Query filter
+                        const q = visitSearchQuery.toLowerCase().trim();
+                        if (q) {
+                          return (
+                            v.parentName.toLowerCase().includes(q) ||
+                            v.studentName.toLowerCase().includes(q) ||
+                            v.purpose.toLowerCase().includes(q) ||
+                            v.notes.toLowerCase().includes(q) ||
+                            v.className.toLowerCase().includes(q)
+                          );
+                        }
+                        return true;
+                      });
+
+                      if (filteredVisits.length === 0) {
+                        return (
+                          <div className="text-center py-12 text-slate-400 border border-dashed rounded-2xl bg-slate-50/50">
+                            <Users className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                            <p className="text-xs font-bold">لا توجد سجلات زيارات تطابق التصفية الحالية.</p>
+                          </div>
+                        );
+                      }
+
+                      return filteredVisits.map((v) => {
+                        const styles = getStatusStyles(v.status);
+                        return (
+                          <div key={v.id} className={`bg-slate-50/60 border ${styles.cardBorder} rounded-2xl p-4 space-y-3 hover:bg-slate-50 transition-all duration-200`}>
+                            <div className="flex justify-between items-start gap-2">
+                              <div>
+                                <h5 className="font-black text-slate-900 text-xs sm:text-sm flex items-center gap-2">
+                                  {v.parentName}
+                                  <span className={`${styles.badgeBg} text-[9px] px-1.5 py-0.5 rounded-md font-black`}>
+                                    {styles.label}
+                                  </span>
+                                </h5>
+                                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-[10px] text-slate-500 font-extrabold">
+                                  <span className="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-md border border-slate-300/40">الطالب: {v.studentName}</span>
+                                  <span className="bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded-md border border-emerald-100 font-bold">{v.className}</span>
+                                </div>
+                              </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-1 rounded-lg font-black flex items-center gap-1 border border-slate-300/40">
+                                <Calendar className="w-3 h-3 text-emerald-600" /> {v.date}
+                              </span>
+                              
+                              {/* Soft Confirmation for deletion (100% iframe-safe) */}
+                              {deleteConfirmId === v.id ? (
+                                <div className="flex items-center gap-1 bg-rose-100 border border-rose-300 px-1.5 py-1 rounded-xl animate-pulse">
+                                  <span className="text-[9px] font-black text-rose-800">حذف؟</span>
+                                  <button
+                                    onClick={() => handleDeleteVisit(v.id)}
+                                    className="bg-rose-600 hover:bg-rose-700 text-white text-[9px] px-1.5 py-0.5 rounded-lg font-bold cursor-pointer"
+                                  >
+                                    نعم
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirmId(null)}
+                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-[9px] px-1.5 py-0.5 rounded-lg font-bold cursor-pointer"
+                                  >
+                                    تراجع
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setDeleteConfirmId(v.id)}
+                                  className="text-rose-500 hover:text-rose-700 p-1 rounded-lg hover:bg-rose-50 cursor-pointer transition-colors"
+                                  title="حذف السجل"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="bg-white border border-slate-100 p-2.5 rounded-xl space-y-2">
+                            <p className="text-xs font-black text-slate-800">
+                              <span className="text-emerald-700 font-extrabold">📌 الغرض: </span>
+                              {v.purpose}
+                            </p>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              <span className="text-cyan-700 font-bold">💡 التوجيه/الإجراء: </span>
+                              {v.notes}
+                            </p>
+                          </div>
+                        </div>
+                      );});
+                    })()}
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end shrink-0 gap-2">
+              <button
+                onClick={() => {
+                  // Re-calculate the filtered visits exactly as in the list view
+                  const filtered = visits.filter(v => {
+                    if (v.date) {
+                      const parts = v.date.split("-");
+                      if (parts.length >= 2) {
+                        const yMonth = `${parts[0]}-${parts[1]}`;
+                        if (filterSingleMonth && yMonth !== filterSingleMonth) return false;
+                        if (filterMonthFrom && yMonth < filterMonthFrom) return false;
+                        if (filterMonthTo && yMonth > filterMonthTo) return false;
+                      }
+                    }
+                    const q = visitSearchQuery.toLowerCase().trim();
+                    if (q) {
+                      return (
+                        v.parentName.toLowerCase().includes(q) ||
+                        v.studentName.toLowerCase().includes(q) ||
+                        v.purpose.toLowerCase().includes(q) ||
+                        v.notes.toLowerCase().includes(q) ||
+                        v.className.toLowerCase().includes(q)
+                      );
+                    }
+                    return true;
+                  });
+                  const reportHtml = compileVisitsReportHtml(filtered);
+                  exportWordFile(reportHtml, `سجل_زيارات_أولياء_الأمور_مدرسة_الجشة_1447هـ`, true);
+                }}
+                className="bg-indigo-600 text-white px-5 py-2 rounded-xl text-xs sm:text-sm font-bold hover:bg-indigo-700 cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <span>تصدير السجل الرسمي كجدول (.doc)</span>
+              </button>
+              <button
+                onClick={() => setShowVisitsModal(false)}
+                className="bg-slate-200 text-slate-700 px-5 py-2 rounded-xl text-xs sm:text-sm font-bold hover:bg-slate-300 cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGuidanceReportsModal && (
+        <GuidanceProgramsServicesModal
+          isOpen={showGuidanceReportsModal}
+          onClose={() => setShowGuidanceReportsModal(false)}
+        />
+      )}
+
+      {showPresentationSlidesModal && (
+        <PresentationSlidesModal
+          isOpen={showPresentationSlidesModal}
+          onClose={() => setShowPresentationSlidesModal(false)}
+          program={program}
+        />
+      )}
+
+      {showOperationalPlanModal && (
+        <OperationalPlanModal
+          plan={selectedOperationalPlan}
+          isOpen={showOperationalPlanModal}
+          onClose={() => {
+            setShowOperationalPlanModal(false);
+            setSelectedOperationalPlan(null);
+          }}
+        />
+      )}
+
+    </div>
+  );
+}

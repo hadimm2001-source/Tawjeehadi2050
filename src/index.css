@@ -1,0 +1,139 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Tajawal', system-ui, sans-serif;
+  
+  /* Map teal classes to Al-Ahsa Navy/Teal/Blue palette */
+  --color-teal-50: #f0f7fa;
+  --color-teal-100: #e0eef5;
+  --color-teal-200: #badaea;
+  --color-teal-300: #88bdda;
+  --color-teal-400: #0da9a6;  /* Al-Ahsa Teal */
+  --color-teal-500: #3d7eb9;  /* Al-Ahsa Blue */
+  --color-teal-600: #295f92;  /* Slightly darker blue */
+  --color-teal-700: #1d4d73;  /* Blue-Navy */
+  --color-teal-800: #1b495d;  /* Navy shade */
+  --color-teal-900: #15445a;  /* Al-Ahsa Navy */
+  --color-teal-950: #0d2a38;  /* Deep Al-Ahsa Navy */
+
+  /* Map emerald/green classes to Al-Ahsa green */
+  --color-emerald-50: #f0fdf4;
+  --color-emerald-100: #dcfce7;
+  --color-emerald-200: #bbf7d0;
+  --color-emerald-300: #86efac;
+  --color-emerald-400: #4ade80;
+  --color-emerald-500: #07a869; /* Al-Ahsa Green */
+  --color-emerald-600: #058f58;
+  --color-emerald-700: #047649;
+  --color-emerald-800: #065f3c;
+  --color-emerald-900: #064e32;
+  --color-emerald-950: #022c1d;
+
+  /* Map gold/beige/amber */
+  --color-amber-50: #fcfbfa;
+  --color-amber-100: #faf7eb;
+  --color-amber-200: #e6e4ba;
+  --color-amber-300: #d9d5aa;
+  --color-amber-400: #d0c89e;
+  --color-amber-500: #c1b489; /* Al-Ahsa Gold */
+  --color-amber-600: #ada073;
+  --color-amber-700: #8f8257;
+  --color-amber-800: #746841;
+  --color-amber-900: #594f2d;
+  --color-amber-950: #373017;
+}
+
+body {
+  font-family: 'Tajawal', system-ui, sans-serif;
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+/* Custom styles for printing */
+@media print {
+  body {
+    background-color: white !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* Aurora Background Animation */
+@keyframes aurora {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-aurora {
+  background: linear-gradient(135deg, #f5f3ff 0%, #e0f2fe 30%, #ffffff 50%, #faf5ff 70%, #f0fdf4 100%);
+  background-size: 400% 400%;
+  animation: aurora 15s ease infinite;
+}
+
+/* Glassmorphism custom classes */
+.glass-card {
+  background: rgba(255, 255, 255, 0.45) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  box-shadow: 0 8px 32px 0 rgba(21, 68, 90, 0.04) !important;
+  border-radius: 24px !important; /* highly rounded corners for Bento Box */
+}
+
+.glass-modal {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(30px) !important;
+  -webkit-backdrop-filter: blur(30px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+}
+
+/* 3D Hover effects */
+.hover-3d-student {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.hover-3d-student:hover {
+  transform: translateY(-4px) scale(1.015) !important;
+  box-shadow: 0 12px 24px -8px rgba(21, 68, 90, 0.12) !important;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: #3d7eb9 !important;
+}
+
+.hover-3d-btn {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.hover-3d-btn:hover {
+  transform: translateY(-2.5px) !important;
+  box-shadow: 0 8px 20px -6px rgba(21, 68, 90, 0.3) !important;
+}
+
+.hover-3d-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.hover-3d-card:hover {
+  transform: translateY(-5px) !important;
+  box-shadow: 0 20px 40px -15px rgba(21, 68, 90, 0.15) !important;
+}
+
+/* Strict image sizing and centering for Word reports & print views */
+#case-study-print-target img {
+  max-width: 150px !important;
+  max-height: 120px !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  display: block !important;
+  margin: 0 auto !important;
+}
+

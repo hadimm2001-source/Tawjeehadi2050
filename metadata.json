@@ -1,0 +1,6 @@
+{
+  "name": "Student Guidance Dashboard 1447H",
+  "description": "لوحة برامج وخدمات التوجيه الطلابي المتكاملة لمدرسة الجشة لعام 1447هـ، متضمنة بطاقات الخطط السنوية والفصلية والتشغيلية الـ 13 المعتمدة، ودعم الطلاب والتقارير المدرسية وإعداد دراسات الحالة والإذاعة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
