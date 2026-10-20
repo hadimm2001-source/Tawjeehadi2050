@@ -9,10 +9,13 @@ import {
   Award,
   TrendingUp,
   ShieldCheck,
+  ShieldAlert,
+  Brain,
   UserX,
   FileCheck,
   Target,
   HeartHandshake,
+  GraduationCap,
   Search,
   ExternalLink,
   FileText,
@@ -45,14 +48,18 @@ export default function OperationalPlansSection({ onSelectPlan }: Props) {
     Award: <Award className="w-5 h-5" />,
     TrendingUp: <TrendingUp className="w-5 h-5" />,
     ShieldCheck: <ShieldCheck className="w-5 h-5" />,
+    ShieldAlert: <ShieldAlert className="w-5 h-5" />,
+    Brain: <Brain className="w-5 h-5" />,
     UserX: <UserX className="w-5 h-5" />,
     FileCheck: <FileCheck className="w-5 h-5" />,
     Target: <Target className="w-5 h-5" />,
-    HeartHandshake: <HeartHandshake className="w-5 h-5" />
+    HeartHandshake: <HeartHandshake className="w-5 h-5" />,
+    Sparkles: <Sparkles className="w-5 h-5" />,
+    GraduationCap: <GraduationCap className="w-5 h-5" />
   };
 
   const categories = [
-    { id: "all", label: "جميع الخطط (١٣)" },
+    { id: "all", label: `جميع الخطط (${Object.keys(operationalPlansDB).length})` },
     { id: "الخطط الاستراتيجية والسنوية", label: "الخطط السنوية" },
     { id: "الخطط الفصلية والتشغيلية", label: "الخطط الفصلية" },
     { id: "الجداول والتنظيم الإجرائي", label: "الجداول والتوزيعات" },
@@ -97,7 +104,7 @@ export default function OperationalPlansSection({ onSelectPlan }: Props) {
                   حقيبة الخطط والوثائق الإرشادية والتشغيلية المعتمدة
                 </span>
                 <span className="bg-emerald-500/30 text-emerald-300 text-xs font-bold px-2.5 py-1 rounded-full border border-emerald-400/30">
-                  ١٣ خطة جاهزة
+                  {Object.keys(operationalPlansDB).length} خطة جاهزة
                 </span>
               </div>
               <h2 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-white">
@@ -111,7 +118,7 @@ export default function OperationalPlansSection({ onSelectPlan }: Props) {
             {/* Quick stats capsule */}
             <div className="bg-white/10 backdrop-blur-md border border-white/15 p-3 rounded-2xl flex items-center gap-4 shrink-0 shadow-lg">
               <div className="text-center px-2 border-l border-white/15">
-                <span className="block text-2xl font-black text-white">١٣</span>
+                <span className="block text-2xl font-black text-white">{Object.keys(operationalPlansDB).length}</span>
                 <span className="text-[10px] text-slate-300 font-bold">خطة معتمدة</span>
               </div>
               <div className="text-center px-2 border-l border-white/15">
